@@ -2,19 +2,17 @@ server:
   port: 8085
 
 spring:
-  main:
-    web-application-type: reactive
   cloud:
     gateway:
       routes:
         - id: product_service_route
-          uri: http://localhost:8088
+          uri: http://project-manager:8088
           predicates:
             - Path=/product/**
           filters:
             - StripPrefix=1
         - id: identity_service_route
-          uri: http://localhost:8087
+          uri: http://identity-service:8087
           predicates:
             - Path=/identity/**
           filters:
@@ -24,3 +22,22 @@ logging:
   level:
     root: INFO
     com.example.gateway: DEBUG
+
+spring.application.name=api-gateway
+server.port=8085
+
+# CORS
+spring.cloud.gateway.globalcors.corsConfigurations.[/**].allowedOrigins=${ALLOWED_ORIGINS:*}
+spring.cloud.gateway.globalcors.corsConfigurations.[/**].allowedMethods=${ALLOWED_METHODS:*}
+spring.cloud.gateway.globalcors.corsConfigurations.[/**].allowedHeaders=${ALLOWED_HEADERS:*}
+spring.cloud.gateway.globalcors.corsConfigurations.[/**].allowCredentials=true
+
+# JWT Security (Placeholder)
+spring.security.oauth2.resourceserver.jwt.issuer-uri=${DUMMY_ISSUER:http://placeholder}
+
+# Keycloak Configuration
+keycloak.base-url=http://keycloak-server:8080
+keycloak.realm=master
+keycloak.admin-username=admin
+keycloak.admin-password=admin123
+keycloak.client-id=admin-cli

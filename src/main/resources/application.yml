@@ -2,6 +2,9 @@ server:
   port: 8085
 
 spring:
+  application:
+    name: api-gateway
+
   cloud:
     gateway:
       routes:
@@ -11,6 +14,7 @@ spring:
             - Path=/product/**
           filters:
             - StripPrefix=1
+
         - id: identity_service_route
           uri: http://identity-service:8087
           predicates:
@@ -18,26 +22,28 @@ spring:
           filters:
             - StripPrefix=1
 
+      globalcors:
+        corsConfigurations:
+          '[/**]':
+            allowedOrigins: ${ALLOWED_ORIGINS:*}
+            allowedMethods: ${ALLOWED_METHODS:*}
+            allowedHeaders: ${ALLOWED_HEADERS:*}
+            allowCredentials: true
+
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          issuer-uri: ${DUMMY_ISSUER:http://placeholder}
+
 logging:
   level:
     root: INFO
     com.example.gateway: DEBUG
 
-spring.application.name=api-gateway
-server.port=8085
-
-# CORS
-spring.cloud.gateway.globalcors.corsConfigurations.[/**].allowedOrigins=${ALLOWED_ORIGINS:*}
-spring.cloud.gateway.globalcors.corsConfigurations.[/**].allowedMethods=${ALLOWED_METHODS:*}
-spring.cloud.gateway.globalcors.corsConfigurations.[/**].allowedHeaders=${ALLOWED_HEADERS:*}
-spring.cloud.gateway.globalcors.corsConfigurations.[/**].allowCredentials=true
-
-# JWT Security (Placeholder)
-spring.security.oauth2.resourceserver.jwt.issuer-uri=${DUMMY_ISSUER:http://placeholder}
-
-# Keycloak Configuration
-keycloak.base-url=http://keycloak-server:8080
-keycloak.realm=master
-keycloak.admin-username=admin
-keycloak.admin-password=admin123
-keycloak.client-id=admin-cli
+keycloak:
+  base-url: http://keycloak-server:8080
+  realm: master
+  admin-username: admin
+  admin-password: admin123
+  client-id: admin-cli

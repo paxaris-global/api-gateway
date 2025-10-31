@@ -1,49 +1,110 @@
-server:
-  port: 8085
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
 
-spring:
-  application:
-    name: api-gateway
+    <modelVersion>4.0.0</modelVersion>
 
-  cloud:
-    gateway:
-      routes:
-        - id: product_service_route
-          uri: http://project-manager:8088
-          predicates:
-            - Path=/product/**
-          filters:
-            - StripPrefix=1
+    <groupId>com.paxaris.gateway</groupId>
+    <artifactId>api-gateway</artifactId>
+    <version>0.0.1-SNAPSHOT</version>
 
-        - id: identity_service_route
-          uri: http://identity-service:8087
-          predicates:
-            - Path=/identity/**
-          filters:
-            - StripPrefix=1
+    <properties>
+        <java.version>21</java.version>
+        <spring.boot.version>3.5.6</spring.boot.version>
+        <spring.cloud.version>2025.0.0</spring.cloud.version>
+    </properties>
 
-      globalcors:
-        corsConfigurations:
-          '[/**]':
-            allowedOrigins: ${ALLOWED_ORIGINS:*}
-            allowedMethods: ${ALLOWED_METHODS:*}
-            allowedHeaders: ${ALLOWED_HEADERS:*}
-            allowCredentials: true
+    <dependencyManagement>
+        <dependencies>
+            <dependency>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-dependencies</artifactId>
+                <version>${spring.boot.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+            <dependency>
+                <groupId>org.springframework.cloud</groupId>
+                <artifactId>spring-cloud-dependencies</artifactId>
+                <version>${spring.cloud.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
 
-  security:
-    oauth2:
-      resourceserver:
-        jwt:
-          issuer-uri: ${DUMMY_ISSUER:http://placeholder}
+    <dependencies>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-webflux</artifactId>
+        </dependency>
 
-logging:
-  level:
-    root: INFO
-    com.example.gateway: DEBUG
+        <dependency>
+            <groupId>org.springframework.cloud</groupId>
+            <artifactId>spring-cloud-starter-gateway-server-webflux</artifactId>
+        </dependency>
 
-keycloak:
-  base-url: http://keycloak-server:8080
-  realm: master
-  admin-username: admin
-  admin-password: admin123
-  client-id: admin-cli
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-logging</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>org.projectlombok</groupId>
+            <artifactId>lombok</artifactId>
+            <version>1.18.40</version>
+            <scope>provided</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <version>3.11.0</version>
+                <configuration>
+                    <source>${java.version}</source>
+                    <target>${java.version}</target>
+                    <release>${java.version}</release>
+                </configuration>
+            </plugin>
+
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+            </plugin>
+
+            <!-- JIB plugin for Docker image build/push  (mvn clean compile jib:build) -->
+            <plugin>
+                <groupId>com.google.cloud.tools</groupId>
+                <artifactId>jib-maven-plugin</artifactId>
+                <version>3.4.0</version>
+                <configuration>
+                    <from>
+                        <image>eclipse-temurin:21-jdk</image>
+                    </from>
+                    <to>
+                        <image>devopspaxarisglobal/apigateway:latest</image>
+                        <auth>
+                            <username>${env.DOCKER_USERNAME}</username>
+                            <password>${env.DOCKER_PASSWORD}</password>
+                        </auth>
+                    </to>
+                    <container>
+                        <ports>
+                            <port>8080</port>
+                        </ports>
+                        <mainClass>com.paxaris.gateway.GatewayApplication</mainClass>
+                    </container>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+</project>

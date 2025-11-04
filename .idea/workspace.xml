@@ -3,6 +3,7 @@
   <component name="AutoImportSettings">
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
+
   <component name="ChangeListManager">
     <list default="true" id="11ea62a6-87f7-4f2c-8fdd-334d6d2b58ea" name="Changes" comment="first commit" />
     <option name="SHOW_DIALOG" value="false" />
@@ -10,54 +11,72 @@
     <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
     <option name="LAST_RESOLUTION" value="IGNORE" />
   </component>
+
   <component name="Git.Settings">
     <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$/api-gateway" />
   </component>
-  <component name="GitHubPullRequestSearchHistory">{
-  &quot;lastFilter&quot;: {
-    &quot;state&quot;: &quot;OPEN&quot;,
-    &quot;assignee&quot;: &quot;paxaris-global&quot;
-  }
-}</component>
-  <component name="GithubPullRequestsUISettings">{
-  &quot;selectedUrlAndAccountId&quot;: {
-    &quot;url&quot;: &quot;https://github.com/paxaris-global/api-gateway.git&quot;,
-    &quot;accountId&quot;: &quot;7ebb6bbe-fa68-46b2-9d7c-a91e12cdbb5c&quot;
-  }
-}</component>
+
+  <component name="GitHubPullRequestSearchHistory">
+    {
+    "lastFilter": {
+    "state": "OPEN",
+    "assignee": "paxaris-global"
+    }
+    }
+  </component>
+
+  <component name="GithubPullRequestsUISettings">
+    {
+    "selectedUrlAndAccountId": {
+    "url": "https://github.com/paxaris-global/api-gateway.git",
+    "accountId": "7ebb6bbe-fa68-46b2-9d7c-a91e12cdbb5c"
+    }
+    }
+  </component>
+
   <component name="HighlightingSettingsPerFile">
     <setting file="jar://$PROJECT_DIR$/../../../../Program Files/Java/jdk-21.0.5/lib/src.zip!/java.base/java/lang/ref/Reference.java" root0="SKIP_INSPECTION" />
   </component>
-  <component name="ProjectColorInfo">{
-  &quot;associatedIndex&quot;: 1
-}</component>
+
+  <component name="ProjectColorInfo">
+    <![CDATA[{
+      "associatedIndex": 1
+    }]]>
+  </component>
+
   <component name="ProjectId" id="33H5oI5C9Wz0PDLulAguQWNyFeh" />
+
   <component name="ProjectViewState">
     <option name="hideEmptyMiddlePackages" value="true" />
     <option name="showLibraryContents" value="true" />
   </component>
-  <component name="PropertiesComponent"><![CDATA[{
-  "keyToString": {
-    "Application.GatewayApplication.executor": "Debug",
-    "Maven.api-gateway [clean].executor": "Run",
-    "Maven.api-gateway [install].executor": "Run",
-    "Maven.api-gateway [org.apache.maven.plugins:maven-install-plugin:3.1.2:install].executor": "Run",
-    "Maven.api-gateway [package].executor": "Run",
-    "Maven.api-gateway [validate].executor": "Run",
-    "RunOnceActivity.ShowReadmeOnStart": "true",
-    "RunOnceActivity.git.unshallow": "true",
-    "git-widget-placeholder": "main",
-    "kotlin-language-version-configured": "true",
-    "last_opened_file_path": "C:/Users/Admin/Downloads/api-gateway",
-    "settings.editor.selected.configurable": "preferences.pluginManager"
-  }
-}]]></component>
+
+  <component name="PropertiesComponent">
+    <![CDATA[{
+      "keyToString": {
+        "Application.GatewayApplication.executor": "Debug",
+        "Maven.api-gateway [clean].executor": "Run",
+        "Maven.api-gateway [install].executor": "Run",
+        "Maven.api-gateway [org.apache.maven.plugins:maven-install-plugin:3.1.2:install].executor": "Run",
+        "Maven.api-gateway [package].executor": "Run",
+        "Maven.api-gateway [validate].executor": "Run",
+        "RunOnceActivity.ShowReadmeOnStart": "true",
+        "RunOnceActivity.git.unshallow": "true",
+        "git-widget-placeholder": "main",
+        "kotlin-language-version-configured": "true",
+        "last_opened_file_path": "C:/Users/Admin/Downloads/api-gateway",
+        "settings.editor.selected.configurable": "preferences.pluginManager"
+      }
+    }]]>
+  </component>
+
   <component name="RecentsManager">
     <key name="CopyFile.RECENT_KEYS">
       <recent name="C:\Users\Admin\Downloads\api-gateway" />
       <recent name="C:\Users\Admin\Downloads\api-gateway\src\main\java" />
     </key>
   </component>
+
   <component name="RunManager">
     <configuration name="GatewayApplication" type="Application" factoryName="Application" temporary="true" nameIsGenerated="true">
       <option name="MAIN_CLASS_NAME" value="com.paxaris.gateway.GatewayApplication" />
@@ -78,7 +97,9 @@
       </list>
     </recent_temporary>
   </component>
+
   <component name="SpellCheckerSettings" RuntimeDictionaries="0" Folders="0" CustomDictionaries="0" DefaultDictionary="application-level" UseSingleDictionary="true" transferred="true" />
+
   <component name="TaskManager">
     <task active="true" id="Default" summary="Default task">
       <changelist id="11ea62a6-87f7-4f2c-8fdd-334d6d2b58ea" name="Changes" comment="" />
@@ -89,6 +110,7 @@
     </task>
     <servers />
   </component>
+
   <component name="Vcs.Log.Tabs.Properties">
     <option name="TAB_STATES">
       <map>
@@ -100,6 +122,7 @@
       </map>
     </option>
   </component>
+
   <component name="VcsManagerConfiguration">
     <MESSAGE value="updated final code" />
     <MESSAGE value="first commit" />

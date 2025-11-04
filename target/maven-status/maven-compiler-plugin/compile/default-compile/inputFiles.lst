@@ -1,0 +1,13 @@
+C:\Users\Admin\Downloads\api-gateway\src\main\java\com\paxaris\gateway\config\DynamicGatewayConfig.java
+C:\Users\Admin\Downloads\api-gateway\src\main\java\com\paxaris\gateway\service\GatewayRoleService.java
+C:\Users\Admin\Downloads\api-gateway\src\main\java\com\paxaris\gateway\exception\AuthorizationException.java
+C:\Users\Admin\Downloads\api-gateway\src\main\java\dto\RealmProductRole.java
+C:\Users\Admin\Downloads\api-gateway\src\main\java\com\paxaris\gateway\exception\TokenValidationException.java
+C:\Users\Admin\Downloads\api-gateway\src\main\java\com\paxaris\gateway\config\WebClientConfig.java
+C:\Users\Admin\Downloads\api-gateway\src\main\java\com\paxaris\gateway\exception\RoleDataFetchException.java
+C:\Users\Admin\Downloads\api-gateway\src\main\java\com\paxaris\gateway\filter\AuthorizationFilter.java
+C:\Users\Admin\Downloads\api-gateway\src\main\java\com\paxaris\gateway\exception\GlobalExceptionHandler.java
+C:\Users\Admin\Downloads\api-gateway\src\main\java\com\paxaris\gateway\GatewayApplication.java
+C:\Users\Admin\Downloads\api-gateway\src\main\java\dto\RealmProductRoleUrl.java
+C:\Users\Admin\Downloads\api-gateway\src\main\java\com\paxaris\gateway\config\RoleLoader.java
+C:\Users\Admin\Downloads\api-gateway\src\main\java\com\paxaris\gateway\service\GatewayRedirectService.java

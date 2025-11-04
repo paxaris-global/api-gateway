@@ -1,0 +1,24 @@
+name: Trigger Central CI/CD
+
+on:
+  push:
+    branches:
+      - main
+      - master
+
+jobs:
+  trigger-central-workflow:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger Central Workflow
+        uses: peter-evans/repository-dispatch@v3
+        with:
+          token: ${{ secrets.GH_ACCESS_TOKEN }}
+          repository: paxaris-global/paxo
+          event-type: build-image
+          client-payload: |
+            {
+              "repo": "${{ github.repository }}",
+              "ref": "${{ github.ref }}",
+              "sha": "${{ github.sha }}"
+            }

@@ -2,7 +2,6 @@ server:
   port: 8085
 
 spring:
-
   main:
     web-application-type: reactive
 
@@ -27,12 +26,15 @@ spring:
             - StripPrefix=1
 
       globalcors:
-      corsConfigurations:
-      '[/**]':
-       allowedOriginPatterns: "*"
-       allowedMethods: "*"
-       allowedHeaders: "*"
-       allowCredentials: true
+        corsConfigurations:
+          '[/**]':
+            allowedOriginPatterns:
+              - "*"
+            allowedMethods:
+              - "*"
+            allowedHeaders:
+              - "*"
+            allowCredentials: true
 
   security:
     oauth2:

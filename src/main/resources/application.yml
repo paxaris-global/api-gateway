@@ -25,16 +25,7 @@ spring:
           filters:
             - StripPrefix=1
 
-      globalcors:
-        corsConfigurations:
-          '[/**]':
-            allowedOriginPatterns:
-              - "*"
-            allowedMethods:
-              - "*"
-            allowedHeaders:
-              - "*"
-            allowCredentials: true
+
 
   security:
     oauth2:
@@ -47,9 +38,3 @@ logging:
     root: INFO
     com.example.gateway: DEBUG
 
-keycloak:
-  base-url: http://keycloak-server:8080
-  realm: master
-  admin-username: admin
-  admin-password: admin123
-  client-id: admin-cli

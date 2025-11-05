@@ -27,12 +27,12 @@ spring:
             - StripPrefix=1
 
       globalcors:
-        corsConfigurations:
-          '[/**]':
-            allowedOrigins: ${ALLOWED_ORIGINS:*}
-            allowedMethods: ${ALLOWED_METHODS:*}
-            allowedHeaders: ${ALLOWED_HEADERS:*}
-            allowCredentials: true
+      corsConfigurations:
+      '[/**]':
+       allowedOriginPatterns: "*"
+       allowedMethods: "*"
+       allowedHeaders: "*"
+       allowCredentials: true
 
   security:
     oauth2:

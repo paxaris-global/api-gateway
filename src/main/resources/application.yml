@@ -4,6 +4,11 @@ server:
 project:
   management:
     base-url: ${PROJECT_MANAGEMENT_BASE_URL}
+    endpoints:
+        web:
+          exposure:
+            include: health,info
+
 
 spring:
   main:

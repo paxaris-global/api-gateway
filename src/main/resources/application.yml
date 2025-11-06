@@ -1,6 +1,10 @@
 server:
   port: 8085
 
+project:
+  management:
+    base-url: ${PROJECT_MANAGEMENT_BASE_URL}
+
 spring:
   main:
     web-application-type: reactive
@@ -12,7 +16,7 @@ spring:
     gateway:
       routes:
         - id: product_service_route
-          uri: ${project.management.base-url}
+          uri: ${PROJECT_MANAGEMENT_BASE_URL}
           predicates:
             - Path=/product/**
           filters:

@@ -12,7 +12,7 @@ spring:
     gateway:
       routes:
         - id: product_service_route
-          uri: http://project-manager:8088
+          uri: ${project.management.base-url}
           predicates:
             - Path=/product/**
           filters:

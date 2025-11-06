@@ -4,6 +4,7 @@ import com.paxaris.gateway.service.GatewayRoleService;
 import dto.RealmProductRole;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
 import org.springframework.stereotype.Component;
@@ -21,6 +22,9 @@ public class RoleLoader implements ApplicationRunner {
     private final WebClient.Builder webClientBuilder;
     private final GatewayRoleService gatewayRoleService;
 
+    @Value("${project.management.base-url}")
+    private String projectManagerBaseUrl;
+
     private static final int MAX_RETRIES = 12;        // total retry attempts
     private static final long INITIAL_RETRY_MS = 5000; // 5 seconds
 
@@ -37,7 +41,7 @@ public class RoleLoader implements ApplicationRunner {
             try {
                 List<RealmProductRole> roles = webClientBuilder.build()
                         .get()
-                        .uri("http://project-manager:8088/project/roles")
+                        .uri(projectManagerBaseUrl  + "/project/roles")
                         .retrieve()
                         .bodyToFlux(RealmProductRole.class)
                         .collectList()

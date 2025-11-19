@@ -1,11 +1,13 @@
 com\paxaris\gateway\service\GatewayRoleService.class
 com\paxaris\gateway\config\WebClientConfig.class
+com\paxaris\gateway\config\CorsConfig.class
 dto\RealmProductRoleUrl.class
 dto\RealmProductRoleUrl$RealmProductRoleUrlBuilder.class
 com\paxaris\gateway\filter\AuthorizationFilter$1.class
 dto\RealmProductRole.class
 com\paxaris\gateway\config\RoleLoader.class
 com\paxaris\gateway\exception\GlobalExceptionHandler.class
+com\paxaris\gateway\filter\AuthorizationFilter$2.class
 com\paxaris\gateway\exception\AuthorizationException.class
 com\paxaris\gateway\filter\AuthorizationFilter.class
 com\paxaris\gateway\GatewayApplication.class

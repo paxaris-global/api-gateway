@@ -43,11 +43,56 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
         log.info("➡️ [GATEWAY] Incoming request: {} {}", request.getMethod(), path);
         log.info("📟 [CURL] Equivalent command:\n{}", buildCurlCommand(request));
 
-        // Skip auth for open endpoints
+        // ---------------------------- UPDATED ----------------------------
+        // Intercept login and signup requests to optionally modify response
         if (path.contains("/login") || path.contains("/signup")) {
             log.info("🔓 Skipping auth for open endpoint: {}", path);
+
+            // Only intercept /login to add base_url
+            if (path.contains("/login")) {
+                log.info("🔹 Login detected, forwarding to Identity Service and adding base_url");
+                WebClient webClient = webClientBuilder.baseUrl("http://identity-service:8087").build();
+
+                // Read request body (login credentials) as Mono
+                return DataBufferUtils.join(request.getBody())
+                        .map(dataBuffer -> {
+                            byte[] bytes = new byte[dataBuffer.readableByteCount()];
+                            dataBuffer.read(bytes);
+                            DataBufferUtils.release(dataBuffer);
+                            return bytes;
+                        })
+                        .defaultIfEmpty(new byte[0])
+                        .flatMap(bodyBytes -> {
+                            // Forward login request to Identity Service
+                            return webClient.post()
+                                    .uri(path)
+                                    .contentType(MediaType.APPLICATION_JSON)
+                                    .bodyValue(bodyBytes)
+                                    .retrieve()
+                                    .bodyToMono(new ParameterizedTypeReference<Map<String, Object>>() {})
+                                    .flatMap(identityResponse -> {
+                                        // ---------------------------- UPDATED ----------------------------
+                                        // Add base_url to Identity Service response
+                                        identityResponse.put("base_url", "http://product-service:8080"); // can be dynamic based on role/realm
+                                        log.info("🔹 Added base_url to login response: {}", identityResponse.get("base_url"));
+
+                                        try {
+                                            byte[] modifiedBytes = objectMapper.writeValueAsBytes(identityResponse);
+                                            response.getHeaders().setContentType(MediaType.APPLICATION_JSON);
+                                            return response.writeWith(Mono.just(response.bufferFactory().wrap(modifiedBytes)));
+                                        } catch (Exception e) {
+                                            log.error("💥 Error writing login response: {}", e.getMessage(), e);
+                                            response.setStatusCode(HttpStatus.INTERNAL_SERVER_ERROR);
+                                            return response.setComplete();
+                                        }
+                                    });
+                        });
+            }
+
+            // For signup, just forward normally
             return chain.filter(exchange);
         }
+        // ---------------------------- END UPDATED ----------------------------
 
         String authHeader = request.getHeaders().getFirst(HttpHeaders.AUTHORIZATION);
         if (authHeader == null || !authHeader.startsWith("Bearer ")) {
@@ -86,10 +131,8 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
         List<String> roles = (List<String>) result.getOrDefault("roles", List.of());
         log.info("🔹 Token validated. Realm: {}, Product: {}, Roles: {}", realm, product, roles);
 
-        // Adjust path to match downstream service (strip /keycloak)
         String adjustedPath = path.replaceFirst("/keycloak", "");
 
-        // Roles allowed to forward directly
         List<String> allowedRoles = List.of(
                 "admin",
                 "manage-users",
@@ -107,7 +150,6 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
             return forwardRequest(exchange, "http://identity-service:8087" + adjustedPath, token);
         }
 
-        // Check other roles for URL access
         boolean allowed = false;
         RealmProductRoleUrl matchedUrl = null;
         for (String role : roles) {

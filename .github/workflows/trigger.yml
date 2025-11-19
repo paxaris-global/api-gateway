@@ -9,7 +9,7 @@ on:
 jobs:
   trigger-central-workflow:
     runs-on: ubuntu-latest
-    steps:s
+    steps:
       - name: Trigger Central Workflow
         uses: peter-evans/repository-dispatch@v3
         with:

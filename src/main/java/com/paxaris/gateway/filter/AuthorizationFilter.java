@@ -22,8 +22,8 @@ import org.springframework.core.io.buffer.DataBufferUtils;
 import reactor.core.publisher.Mono;
 
 import java.net.URI;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
+import java.util.stream.Collectors;
 
 @Component
 @Slf4j
@@ -43,9 +43,15 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
         log.info("➡️ [GATEWAY] Incoming request: {} {}", request.getMethod(), path);
         log.info("📟 [CURL] Equivalent command:\n{}", buildCurlCommand(request));
 
-        // Skip auth for open endpoints
+        // Skip auth for open endpoints (login, signup, validate) (changed)
         if (path.contains("/login") || path.contains("/signup") || path.contains("/validate")) {  // (changed)
             log.info("🔓 Skipping auth for open endpoint: {}", path); // (changed)
+
+            // Special handling for /login to enrich response with baseUrls (changed)
+            if (path.contains("/login")) {  // (changed)
+                return handleLoginRequest(exchange); // (changed)
+            }
+
             return chain.filter(exchange);
         }
 
@@ -72,6 +78,65 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
                 });
     }
 
+    // (changed) Handle login request and enrich with baseUrls
+    private Mono<Void> handleLoginRequest(ServerWebExchange exchange) { // (changed)
+        ServerHttpRequest request = exchange.getRequest(); // (changed)
+        ServerHttpResponse response = exchange.getResponse(); // (changed)
+        WebClient webClient = webClientBuilder.baseUrl("http://identity-service:8087").build(); // (changed)
+
+        Mono<byte[]> bodyMono = DataBufferUtils.join(request.getBody()) // (changed)
+                .map(dataBuffer -> { // (changed)
+                    byte[] bytes = new byte[dataBuffer.readableByteCount()]; // (changed)
+                    dataBuffer.read(bytes); // (changed)
+                    DataBufferUtils.release(dataBuffer); // (changed)
+                    return bytes; // (changed)
+                }) // (changed)
+                .defaultIfEmpty(new byte[0]); // (changed)
+
+        return bodyMono.flatMap(bodyBytes -> { // (changed)
+            WebClient.RequestHeadersSpec<?> requestSpec; // (changed)
+
+            if (request.getMethod() == HttpMethod.POST || request.getMethod() == HttpMethod.PUT) { // (changed)
+                requestSpec = webClient.method(request.getMethod()) // (changed)
+                        .uri("/login") // (changed)
+                        .headers(h -> request.getHeaders().forEach((k, v) -> h.put(k, v))) // (changed)
+                        .contentType(MediaType.APPLICATION_JSON) // (changed)
+                        .bodyValue(bodyBytes); // (changed)
+            } else { // GET or other methods (changed)
+                requestSpec = webClient.method(request.getMethod()) // (changed)
+                        .uri("/login") // (changed)
+                        .headers(h -> request.getHeaders().forEach((k, v) -> h.put(k, v))); // (changed)
+            }
+
+            return requestSpec.retrieve() // (changed)
+                    .bodyToMono(new ParameterizedTypeReference<Map<String, Object>>() {}) // (changed)
+                    .flatMap(identityResponse -> { // (changed)
+                        try { // (changed)
+                            String realm = identityResponse.getOrDefault("realm", "").toString(); // (changed)
+                            String product = identityResponse.getOrDefault("product", "").toString(); // (changed)
+                            List<String> roles = (List<String>) identityResponse.getOrDefault("roles", List.of()); // (changed)
+
+                            List<String> baseUrls = roles.stream() // (changed)
+                                    .flatMap(role -> gatewayRoleService.getUrls(realm, product, role).stream()) // (changed)
+                                    .map(RealmProductRoleUrl::getUrl) // (changed)
+                                    .distinct() // (changed)
+                                    .collect(Collectors.toList()); // (changed)
+
+                            identityResponse.put("baseUrls", baseUrls); // (changed)
+
+                            byte[] finalResponse = objectMapper.writeValueAsBytes(identityResponse); // (changed)
+                            response.getHeaders().setContentType(MediaType.APPLICATION_JSON); // (changed)
+                            response.setStatusCode(HttpStatus.OK); // (changed)
+                            return response.writeWith(Mono.just(response.bufferFactory().wrap(finalResponse))); // (changed)
+                        } catch (Exception e) { // (changed)
+                            log.error("💥 Failed to enrich login response with baseUrls", e); // (changed)
+                            response.setStatusCode(HttpStatus.INTERNAL_SERVER_ERROR); // (changed)
+                            return response.setComplete(); // (changed)
+                        } // (changed)
+                    }); // (changed)
+        }); // (changed)
+    } // (changed)
+
     private Mono<Void> handleValidationResponse(Map<String, Object> result, String path,
                                                 ServerHttpResponse response, ServerWebExchange exchange,
                                                 String token) {
@@ -86,20 +151,12 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
         List<String> roles = (List<String>) result.getOrDefault("roles", List.of());
         log.info("🔹 Token validated. Realm: {}, Product: {}, Roles: {}", realm, product, roles);
 
-        // Adjust path to match downstream service (strip /keycloak)
         String adjustedPath = path.replaceFirst("/keycloak", "");
 
-        // Roles allowed to forward directly
-        List<String> allowedRoles = List.of(  // (changed)
-                "admin",                      // (changed)
-                "manage-users",               // (changed)
-                "manage-realm",               // (changed)
-                "create-client",              // (changed)
-                "impersonation",              // (changed)
-                "manage-account",             // (changed)
-                "view-profile",               // (changed)
-                "admin-client",               // (changed) // NEW
-                "realm-admin"                 // (changed) // NEW
+        List<String> allowedRoles = List.of(
+                "admin", "manage-users", "manage-realm", "create-client",
+                "impersonation", "manage-account", "view-profile",
+                "admin-client", "realm-admin"
         );
 
         boolean isAdmin = roles.stream().anyMatch(allowedRoles::contains);
@@ -109,7 +166,6 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
             return forwardRequest(exchange, "http://identity-service:8087" + adjustedPath, token);
         }
 
-        // Check other roles for URL access
         boolean allowed = false;
         RealmProductRoleUrl matchedUrl = null;
         for (String role : roles) {
@@ -154,13 +210,20 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
                 .defaultIfEmpty(new byte[0]);
 
         return bodyMono.flatMap(bodyBytes -> {
-            WebClient.RequestBodySpec requestSpec = webClient.method(method)
-                    .uri(targetUrl)
-                    .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
-                    .headers(h -> request.getHeaders().forEach((k, v) -> h.put(k, v)));
+            WebClient.RequestHeadersSpec<?> requestSpec;
 
             if (method == HttpMethod.POST || method == HttpMethod.PUT) {
-                requestSpec.contentType(MediaType.APPLICATION_JSON).bodyValue(bodyBytes);
+                requestSpec = webClient.method(method)
+                        .uri(targetUrl)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
+                        .headers(h -> request.getHeaders().forEach((k, v) -> h.put(k, v)))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .bodyValue(bodyBytes);
+            } else {
+                requestSpec = webClient.method(method)
+                        .uri(targetUrl)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
+                        .headers(h -> request.getHeaders().forEach((k, v) -> h.put(k, v)));
             }
 
             return requestSpec.exchangeToMono(clientResponse -> {

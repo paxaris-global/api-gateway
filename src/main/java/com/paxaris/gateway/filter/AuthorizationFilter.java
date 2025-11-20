@@ -44,8 +44,8 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
         log.info("📟 [CURL] Equivalent command:\n{}", buildCurlCommand(request));
 
         // Skip auth for open endpoints
-        if (path.contains("/login") || path.contains("/signup")) {
-            log.info("🔓 Skipping auth for open endpoint: {}", path);
+        if (path.contains("/login") || path.contains("/signup") || path.contains("/validate")) {  // (changed)
+            log.info("🔓 Skipping auth for open endpoint: {}", path); // (changed)
             return chain.filter(exchange);
         }
 
@@ -90,14 +90,16 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
         String adjustedPath = path.replaceFirst("/keycloak", "");
 
         // Roles allowed to forward directly
-        List<String> allowedRoles = List.of(
-                "admin",
-                "manage-users",
-                "manage-realm",
-                "create-client",
-                "impersonation",
-                "manage-account",
-                "view-profile"
+        List<String> allowedRoles = List.of(  // (changed)
+                "admin",                      // (changed)
+                "manage-users",               // (changed)
+                "manage-realm",               // (changed)
+                "create-client",              // (changed)
+                "impersonation",              // (changed)
+                "manage-account",             // (changed)
+                "view-profile",               // (changed)
+                "admin-client",               // (changed) // NEW
+                "realm-admin"                 // (changed) // NEW
         );
 
         boolean isAdmin = roles.stream().anyMatch(allowedRoles::contains);

@@ -1,3 +1,4 @@
+// (conged1)
 package com.paxaris.gateway.filter;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -22,8 +23,10 @@ import org.springframework.core.io.buffer.DataBufferUtils;
 import reactor.core.publisher.Mono;
 
 import java.net.URI;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 @Component
 @Slf4j
@@ -43,9 +46,13 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
         log.info("➡️ [GATEWAY] Incoming request: {} {}", request.getMethod(), path);
         log.info("📟 [CURL] Equivalent command:\n{}", buildCurlCommand(request));
 
-        // Skip auth for open endpoints
-        if (path.contains("/login") || path.contains("/signup") || path.contains("/validate")) {  // (changed)
-            log.info("🔓 Skipping auth for open endpoint: {}", path); // (changed)
+        if (path.contains("/login") || path.contains("/signup") || path.contains("/validate")) {
+            log.info("🔓 Skipping auth for open endpoint: {}", path);
+
+            if (path.contains("/login")) {
+                return handleLoginRequest(exchange);
+            }
+
             return chain.filter(exchange);
         }
 
@@ -72,6 +79,71 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
                 });
     }
 
+    private Mono<Void> handleLoginRequest(ServerWebExchange exchange) {
+        ServerHttpRequest request = exchange.getRequest();
+        ServerHttpResponse response = exchange.getResponse();
+        WebClient webClient = webClientBuilder.baseUrl("http://identity-service:8087").build();
+
+        Mono<byte[]> bodyMono = DataBufferUtils.join(request.getBody())
+                .map(dataBuffer -> {
+                    byte[] bytes = new byte[dataBuffer.readableByteCount()];
+                    dataBuffer.read(bytes);
+                    DataBufferUtils.release(dataBuffer);
+                    return bytes;
+                })
+                .defaultIfEmpty(new byte[0]);
+
+        return bodyMono.flatMap(bodyBytes -> {
+            WebClient.RequestBodySpec requestSpec = webClient.method(request.getMethod())
+                    .uri("/login")
+                    .headers(h -> request.getHeaders().forEach((k, v) -> h.put(k, v)))
+                    .contentType(MediaType.APPLICATION_JSON);
+
+            if (request.getMethod() == HttpMethod.POST || request.getMethod() == HttpMethod.PUT) {
+                requestSpec.bodyValue(bodyBytes);
+            }
+
+            return requestSpec.retrieve()
+                    .bodyToMono(new ParameterizedTypeReference<Map<String, Object>>() {})
+                    .flatMap(identityResponse -> {
+                        try {
+                            // Extract token info
+                            String realm = identityResponse.getOrDefault("realm", "").toString();
+                            String product = identityResponse.getOrDefault("product", "").toString();
+                            List<String> roles = (List<String>) identityResponse.getOrDefault("roles", List.of());
+
+                            // Build productUrls safely
+                            List<Map<String, Object>> productUrls = roles.stream()
+                                    .flatMap(roleStr -> {
+                                        List<RealmProductRoleUrl> urls = gatewayRoleService.getUrls(realm, product, roleStr);
+                                        if (urls == null) return List.<Map<String, Object>>of().stream();
+                                        return urls.stream().map(url -> {
+                                            Map<String, Object> map = new HashMap<>();
+                                            map.put("url", url.getUrl() + url.getUri());
+                                            map.put("baseUrl", url.getUrl());
+                                            map.put("uri", url.getUri());
+                                            map.put("role", roleStr);
+                                            return map;
+                                        });
+                                    })
+                                    .collect(Collectors.toList());
+
+
+                            identityResponse.put("productUrls", productUrls);
+
+                            byte[] finalResponse = objectMapper.writeValueAsBytes(identityResponse);
+                            response.getHeaders().setContentType(MediaType.APPLICATION_JSON);
+                            response.setStatusCode(HttpStatus.OK);
+                            return response.writeWith(Mono.just(response.bufferFactory().wrap(finalResponse)));
+                        } catch (Exception e) {
+                            log.error("💥 Failed to enrich login response with productUrls", e);
+                            response.setStatusCode(HttpStatus.INTERNAL_SERVER_ERROR);
+                            return response.setComplete();
+                        }
+                    });
+        });
+    }
+
     private Mono<Void> handleValidationResponse(Map<String, Object> result, String path,
                                                 ServerHttpResponse response, ServerWebExchange exchange,
                                                 String token) {
@@ -86,20 +158,11 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
         List<String> roles = (List<String>) result.getOrDefault("roles", List.of());
         log.info("🔹 Token validated. Realm: {}, Product: {}, Roles: {}", realm, product, roles);
 
-        // Adjust path to match downstream service (strip /keycloak)
         String adjustedPath = path.replaceFirst("/keycloak", "");
 
-        // Roles allowed to forward directly
-        List<String> allowedRoles = List.of(  // (changed)
-                "admin",                      // (changed)
-                "manage-users",               // (changed)
-                "manage-realm",               // (changed)
-                "create-client",              // (changed)
-                "impersonation",              // (changed)
-                "manage-account",             // (changed)
-                "view-profile",               // (changed)
-                "admin-client",               // (changed) // NEW
-                "realm-admin"                 // (changed) // NEW
+        List<String> allowedRoles = List.of(
+                "admin", "manage-users", "manage-realm", "create-client", "impersonation",
+                "manage-account", "view-profile", "admin-client", "realm-admin"
         );
 
         boolean isAdmin = roles.stream().anyMatch(allowedRoles::contains);
@@ -109,20 +172,19 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
             return forwardRequest(exchange, "http://identity-service:8087" + adjustedPath, token);
         }
 
-        // Check other roles for URL access
         boolean allowed = false;
         RealmProductRoleUrl matchedUrl = null;
-        for (String role : roles) {
-            List<RealmProductRoleUrl> urls = gatewayRoleService.getUrls(realm, product, role);
+        outer:
+        for (String roleStr : roles) {
+            List<RealmProductRoleUrl> urls = gatewayRoleService.getUrls(realm, product, roleStr);
             if (urls == null) continue;
             for (RealmProductRoleUrl url : urls) {
                 if (url.getUri() != null && adjustedPath.equals(url.getUri())) {
                     allowed = true;
                     matchedUrl = url;
-                    break;
+                    break outer;
                 }
             }
-            if (allowed) break;
         }
 
         if (allowed && matchedUrl != null) {

@@ -1,4 +1,4 @@
-// (conged1)
+// conged1
 package com.paxaris.gateway.filter;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -23,6 +23,7 @@ import org.springframework.core.io.buffer.DataBufferUtils;
 import reactor.core.publisher.Mono;
 
 import java.net.URI;
+import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -46,6 +47,7 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
         log.info("➡️ [GATEWAY] Incoming request: {} {}", request.getMethod(), path);
         log.info("📟 [CURL] Equivalent command:\n{}", buildCurlCommand(request));
 
+        // Skip auth for open endpoints
         if (path.contains("/login") || path.contains("/signup") || path.contains("/validate")) {
             log.info("🔓 Skipping auth for open endpoint: {}", path);
 
@@ -56,6 +58,7 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
             return chain.filter(exchange);
         }
 
+        // Validate token for secured endpoints
         String authHeader = request.getHeaders().getFirst(HttpHeaders.AUTHORIZATION);
         if (authHeader == null || !authHeader.startsWith("Bearer ")) {
             log.warn("❌ Missing or invalid Authorization header");
@@ -79,35 +82,45 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
                 });
     }
 
+    // Handle login request and enrich with productUrls
     private Mono<Void> handleLoginRequest(ServerWebExchange exchange) {
         ServerHttpRequest request = exchange.getRequest();
         ServerHttpResponse response = exchange.getResponse();
         WebClient webClient = webClientBuilder.baseUrl("http://identity-service:8087").build();
 
-        Mono<byte[]> bodyMono = DataBufferUtils.join(request.getBody())
+        Mono<String> bodyMono = DataBufferUtils.join(request.getBody())
                 .map(dataBuffer -> {
                     byte[] bytes = new byte[dataBuffer.readableByteCount()];
                     dataBuffer.read(bytes);
                     DataBufferUtils.release(dataBuffer);
-                    return bytes;
+                    return new String(bytes, StandardCharsets.UTF_8);
                 })
-                .defaultIfEmpty(new byte[0]);
+                .defaultIfEmpty("{}"); // default empty JSON
 
-        return bodyMono.flatMap(bodyBytes -> {
+        return bodyMono.flatMap(bodyStr -> {
             WebClient.RequestBodySpec requestSpec = webClient.method(request.getMethod())
                     .uri("/login")
-                    .headers(h -> request.getHeaders().forEach((k, v) -> h.put(k, v)))
-                    .contentType(MediaType.APPLICATION_JSON);
+                    .headers(h -> {
+                        HttpHeaders original = request.getHeaders();
+                        if (original.containsKey(HttpHeaders.CONTENT_TYPE)) {
+                            h.setContentType(original.getContentType());
+                        } else {
+                            h.setContentType(MediaType.APPLICATION_JSON);
+                        }
+                        if (original.containsKey(HttpHeaders.ACCEPT)) {
+                            h.setAccept(original.getAccept());
+                        }
+                    });
 
             if (request.getMethod() == HttpMethod.POST || request.getMethod() == HttpMethod.PUT) {
-                requestSpec.bodyValue(bodyBytes);
+                requestSpec.bodyValue(bodyStr);
             }
 
             return requestSpec.retrieve()
                     .bodyToMono(new ParameterizedTypeReference<Map<String, Object>>() {})
                     .flatMap(identityResponse -> {
                         try {
-                            // Extract token info
+                            // Extract login info
                             String realm = identityResponse.getOrDefault("realm", "").toString();
                             String product = identityResponse.getOrDefault("product", "").toString();
                             List<String> roles = (List<String>) identityResponse.getOrDefault("roles", List.of());
@@ -125,9 +138,7 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
                                             map.put("role", roleStr);
                                             return map;
                                         });
-                                    })
-                                    .collect(Collectors.toList());
-
+                                    }).collect(Collectors.toList());
 
                             identityResponse.put("productUrls", productUrls);
 
@@ -140,10 +151,16 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
                             response.setStatusCode(HttpStatus.INTERNAL_SERVER_ERROR);
                             return response.setComplete();
                         }
+                    })
+                    .onErrorResume(e -> {
+                        log.error("💥 [GATEWAY] Error forwarding login to Identity Service: {}", e.getMessage(), e);
+                        response.setStatusCode(HttpStatus.INTERNAL_SERVER_ERROR);
+                        return response.setComplete();
                     });
         });
     }
 
+    // Handle token validation for secured endpoints
     private Mono<Void> handleValidationResponse(Map<String, Object> result, String path,
                                                 ServerHttpResponse response, ServerWebExchange exchange,
                                                 String token) {
@@ -206,22 +223,30 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
         WebClient webClient = webClientBuilder.build();
         HttpMethod method = request.getMethod();
 
-        Mono<byte[]> bodyMono = DataBufferUtils.join(request.getBody())
+        Mono<String> bodyMono = DataBufferUtils.join(request.getBody())
                 .map(dataBuffer -> {
                     byte[] bytes = new byte[dataBuffer.readableByteCount()];
                     dataBuffer.read(bytes);
                     DataBufferUtils.release(dataBuffer);
-                    return bytes;
+                    return new String(bytes, StandardCharsets.UTF_8);
                 })
-                .defaultIfEmpty(new byte[0]);
+                .defaultIfEmpty("{}");
 
-        return bodyMono.flatMap(bodyBytes -> {
+        return bodyMono.flatMap(bodyStr -> {
             WebClient.RequestBodySpec requestSpec = webClient.method(method)
                     .uri(targetUrl)
-                    .headers(h -> request.getHeaders().forEach((k, v) -> h.put(k, v)));
+                    .headers(h -> {
+                        HttpHeaders original = request.getHeaders();
+                        if (original.containsKey(HttpHeaders.CONTENT_TYPE)) {
+                            h.setContentType(original.getContentType());
+                        }
+                        if (original.containsKey(HttpHeaders.ACCEPT)) {
+                            h.setAccept(original.getAccept());
+                        }
+                    });
 
             if (method == HttpMethod.POST || method == HttpMethod.PUT) {
-                requestSpec.contentType(MediaType.APPLICATION_JSON).bodyValue(bodyBytes);
+                requestSpec.bodyValue(bodyStr);
             }
 
             return requestSpec.exchangeToMono(clientResponse -> {
@@ -232,7 +257,6 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
             });
         });
     }
-
 
     private String buildCurlCommand(ServerHttpRequest request) {
         StringBuilder curl = new StringBuilder("curl -X ")

@@ -1,4 +1,3 @@
-// conged1
 package com.paxaris.gateway.filter;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -58,7 +57,6 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
             return chain.filter(exchange);
         }
 
-        // Validate token for secured endpoints
         String authHeader = request.getHeaders().getFirst(HttpHeaders.AUTHORIZATION);
         if (authHeader == null || !authHeader.startsWith("Bearer ")) {
             log.warn("❌ Missing or invalid Authorization header");
@@ -82,7 +80,6 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
                 });
     }
 
-    // Handle login request and enrich with productUrls
     private Mono<Void> handleLoginRequest(ServerWebExchange exchange) {
         ServerHttpRequest request = exchange.getRequest();
         ServerHttpResponse response = exchange.getResponse();
@@ -95,20 +92,15 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
                     DataBufferUtils.release(dataBuffer);
                     return new String(bytes, StandardCharsets.UTF_8);
                 })
-                .defaultIfEmpty("{}"); // default empty JSON
+                .defaultIfEmpty("{}");
 
         return bodyMono.flatMap(bodyStr -> {
             WebClient.RequestBodySpec requestSpec = webClient.method(request.getMethod())
                     .uri("/login")
                     .headers(h -> {
-                        HttpHeaders original = request.getHeaders();
-                        if (original.containsKey(HttpHeaders.CONTENT_TYPE)) {
-                            h.setContentType(original.getContentType());
-                        } else {
-                            h.setContentType(MediaType.APPLICATION_JSON);
-                        }
-                        if (original.containsKey(HttpHeaders.ACCEPT)) {
-                            h.setAccept(original.getAccept());
+                        h.setContentType(MediaType.APPLICATION_JSON);
+                        if (request.getHeaders().containsKey(HttpHeaders.ACCEPT)) {
+                            h.setAccept(request.getHeaders().getAccept());
                         }
                     });
 
@@ -120,12 +112,10 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
                     .bodyToMono(new ParameterizedTypeReference<Map<String, Object>>() {})
                     .flatMap(identityResponse -> {
                         try {
-                            // Extract login info
                             String realm = identityResponse.getOrDefault("realm", "").toString();
                             String product = identityResponse.getOrDefault("product", "").toString();
                             List<String> roles = (List<String>) identityResponse.getOrDefault("roles", List.of());
 
-                            // Build productUrls safely
                             List<Map<String, Object>> productUrls = roles.stream()
                                     .flatMap(roleStr -> {
                                         List<RealmProductRoleUrl> urls = gatewayRoleService.getUrls(realm, product, roleStr);
@@ -138,7 +128,8 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
                                             map.put("role", roleStr);
                                             return map;
                                         });
-                                    }).collect(Collectors.toList());
+                                    })
+                                    .collect(Collectors.toList());
 
                             identityResponse.put("productUrls", productUrls);
 
@@ -153,14 +144,13 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
                         }
                     })
                     .onErrorResume(e -> {
-                        log.error("💥 [GATEWAY] Error forwarding login to Identity Service: {}", e.getMessage(), e);
+                        log.error("💥 Error forwarding login to Identity Service: {}", e.getMessage(), e);
                         response.setStatusCode(HttpStatus.INTERNAL_SERVER_ERROR);
                         return response.setComplete();
                     });
         });
     }
 
-    // Handle token validation for secured endpoints
     private Mono<Void> handleValidationResponse(Map<String, Object> result, String path,
                                                 ServerHttpResponse response, ServerWebExchange exchange,
                                                 String token) {
@@ -236,12 +226,9 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
             WebClient.RequestBodySpec requestSpec = webClient.method(method)
                     .uri(targetUrl)
                     .headers(h -> {
-                        HttpHeaders original = request.getHeaders();
-                        if (original.containsKey(HttpHeaders.CONTENT_TYPE)) {
-                            h.setContentType(original.getContentType());
-                        }
-                        if (original.containsKey(HttpHeaders.ACCEPT)) {
-                            h.setAccept(original.getAccept());
+                        h.setContentType(MediaType.APPLICATION_JSON);
+                        if (request.getHeaders().containsKey(HttpHeaders.ACCEPT)) {
+                            h.setAccept(request.getHeaders().getAccept());
                         }
                     });
 

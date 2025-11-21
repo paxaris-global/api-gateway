@@ -18,15 +18,11 @@ import org.springframework.http.server.reactive.ServerHttpResponse;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.server.ServerWebExchange;
-import org.springframework.core.io.buffer.DataBuffer;
 import org.springframework.core.io.buffer.DataBufferUtils;
 import reactor.core.publisher.Mono;
 
 import java.net.URI;
-import java.nio.charset.StandardCharsets;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 import java.util.stream.Collectors;
 
 @Component
@@ -45,12 +41,15 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
         String path = request.getURI().getPath();
 
         log.info("➡️ [GATEWAY] Incoming request: {} {}", request.getMethod(), path);
+        log.info("📟 [CURL] Equivalent command:\n{}", buildCurlCommand(request));
 
-        if (path.contains("/login") || path.contains("/signup") || path.contains("/validate")) {
-            log.info("🔓 Skipping auth for open endpoint: {}", path);
+        // Skip auth for open endpoints (login, signup, validate) (changed)
+        if (path.contains("/login") || path.contains("/signup") || path.contains("/validate")) {  // (changed)
+            log.info("🔓 Skipping auth for open endpoint: {}", path); // (changed)
 
-            if (path.contains("/login")) {
-                return handleLoginRequest(exchange);
+            // Special handling for /login to enrich response with baseUrls (changed)
+            if (path.contains("/login")) {  // (changed)
+                return handleLoginRequest(exchange); // (changed)
             }
 
             return chain.filter(exchange);
@@ -73,82 +72,66 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
                 .bodyToMono(new ParameterizedTypeReference<Map<String, Object>>() {})
                 .flatMap(result -> handleValidationResponse(result, path, response, exchange, token))
                 .onErrorResume(e -> {
-                    log.error("💥 [GATEWAY] Identity Service validation failed", e);
+                    log.error("💥 [GATEWAY] Identity Service validation failed: {}", e.getMessage(), e);
                     response.setStatusCode(HttpStatus.INTERNAL_SERVER_ERROR);
                     return response.setComplete();
                 });
     }
 
-    private Mono<Void> handleLoginRequest(ServerWebExchange exchange) {
-        ServerHttpRequest request = exchange.getRequest();
-        ServerHttpResponse response = exchange.getResponse();
-        WebClient webClient = webClientBuilder.baseUrl("http://identity-service:8087").build();
+    // (changed) Handle login request and enrich with baseUrls
+    private Mono<Void> handleLoginRequest(ServerWebExchange exchange) { // (changed)
+        ServerHttpRequest request = exchange.getRequest(); // (changed)
+        ServerHttpResponse response = exchange.getResponse(); // (changed)
+        WebClient webClient = webClientBuilder.baseUrl("http://identity-service:8087").build(); // (changed)
 
-        // Read body safely as bytes
-        return DataBufferUtils.join(request.getBody())
-                .map(dataBuffer -> {
-                    byte[] bytes = new byte[dataBuffer.readableByteCount()];
-                    dataBuffer.read(bytes);
-                    DataBufferUtils.release(dataBuffer);
-                    return bytes;
-                })
-                .defaultIfEmpty(new byte[0])
-                .flatMap(bodyBytes -> {
-                    String bodyStr = new String(bodyBytes, StandardCharsets.UTF_8);
-                    log.info("📦 Login request body: {}", bodyStr);
+        // Forward login request to identity service (changed)
+        Mono<byte[]> bodyMono = DataBufferUtils.join(request.getBody()) // (changed)
+                .map(dataBuffer -> { // (changed)
+                    byte[] bytes = new byte[dataBuffer.readableByteCount()]; // (changed)
+                    dataBuffer.read(bytes); // (changed)
+                    DataBufferUtils.release(dataBuffer); // (changed)
+                    return bytes; // (changed)
+                }) // (changed)
+                .defaultIfEmpty(new byte[0]); // (changed)
 
-                    WebClient.RequestBodySpec requestSpec = webClient.method(request.getMethod())
-                            .uri("/login")
-                            .headers(h -> request.getHeaders().forEach((k, v) -> h.addAll(k, v)))
-                            .contentType(MediaType.APPLICATION_JSON);
+        return bodyMono.flatMap(bodyBytes -> { // (changed)
+            WebClient.RequestBodySpec requestSpec = webClient.method(request.getMethod()) // (changed)
+                    .uri("/login") // (changed)
+                    .headers(h -> request.getHeaders().forEach((k, v) -> h.put(k, v))) // (changed)
+                    .contentType(MediaType.APPLICATION_JSON) // (changed)
+                    .bodyValue(bodyBytes); // (changed)
 
-                    if (request.getMethod() == HttpMethod.POST || request.getMethod() == HttpMethod.PUT) {
-                        requestSpec.bodyValue(bodyStr);
-                    }
+            return requestSpec.retrieve() // (changed)
+                    .bodyToMono(new ParameterizedTypeReference<Map<String, Object>>() {}) // (changed)
+                    .flatMap(identityResponse -> { // (changed)
+                        try { // (changed)
+                            // Extract realm, product, roles from identity service response (changed)
+                            String realm = identityResponse.getOrDefault("realm", "").toString(); // (changed)
+                            String product = identityResponse.getOrDefault("product", "").toString(); // (changed)
+                            List<String> roles = (List<String>) identityResponse.getOrDefault("roles", List.of()); // (changed)
 
-                    return requestSpec.retrieve()
-                            .bodyToMono(new ParameterizedTypeReference<Map<String, Object>>() {})
-                            .flatMap(identityResponse -> {
-                                try {
-                                    String realm = identityResponse.getOrDefault("realm", "").toString();
-                                    String product = identityResponse.getOrDefault("product", "").toString();
-                                    List<String> roles = (List<String>) identityResponse.getOrDefault("roles", List.of());
+                            // Fetch base URLs from GatewayRoleService.memory (changed)
+                            List<String> baseUrls = roles.stream() // (changed)
+                                    .flatMap(role -> gatewayRoleService.getUrls(realm, product, role).stream()) // (changed)
+                                    .map(RealmProductRoleUrl::getUrl) // (changed)
+                                    .distinct() // (changed)
+                                    .collect(Collectors.toList()); // (changed)
 
-                                    // Build productUrls
-                                    List<Map<String, Object>> productUrls = roles.stream()
-                                            .flatMap(roleStr -> {
-                                                List<RealmProductRoleUrl> urls = gatewayRoleService.getUrls(realm, product, roleStr);
-                                                if (urls == null) return List.<Map<String, Object>>of().stream();
-                                                return urls.stream().map(url -> {
-                                                    Map<String, Object> map = new HashMap<>();
-                                                    map.put("url", url.getUrl() + url.getUri());
-                                                    map.put("baseUrl", url.getUrl());
-                                                    map.put("uri", url.getUri());
-                                                    map.put("role", roleStr);
-                                                    return map;
-                                                });
-                                            })
-                                            .collect(Collectors.toList());
+                            // Add baseUrls to response (changed)
+                            identityResponse.put("baseUrls", baseUrls); // (changed)
 
-                                    identityResponse.put("productUrls", productUrls);
-
-                                    byte[] finalResponse = objectMapper.writeValueAsBytes(identityResponse);
-                                    response.getHeaders().setContentType(MediaType.APPLICATION_JSON);
-                                    response.setStatusCode(HttpStatus.OK);
-                                    return response.writeWith(Mono.just(response.bufferFactory().wrap(finalResponse)));
-                                } catch (Exception e) {
-                                    log.error("💥 Failed to enrich login response", e);
-                                    response.setStatusCode(HttpStatus.INTERNAL_SERVER_ERROR);
-                                    return response.setComplete();
-                                }
-                            })
-                            .onErrorResume(e -> {
-                                log.error("💥 Error calling Identity Service", e);
-                                response.setStatusCode(HttpStatus.INTERNAL_SERVER_ERROR);
-                                return response.setComplete();
-                            });
-                });
-    }
+                            byte[] finalResponse = objectMapper.writeValueAsBytes(identityResponse); // (changed)
+                            response.getHeaders().setContentType(MediaType.APPLICATION_JSON); // (changed)
+                            response.setStatusCode(HttpStatus.OK); // (changed)
+                            return response.writeWith(Mono.just(response.bufferFactory().wrap(finalResponse))); // (changed)
+                        } catch (Exception e) { // (changed)
+                            log.error("💥 Failed to enrich login response with baseUrls", e); // (changed)
+                            response.setStatusCode(HttpStatus.INTERNAL_SERVER_ERROR); // (changed)
+                            return response.setComplete(); // (changed)
+                        } // (changed)
+                    }); // (changed)
+        }); // (changed)
+    } // (changed)
 
     private Mono<Void> handleValidationResponse(Map<String, Object> result, String path,
                                                 ServerHttpResponse response, ServerWebExchange exchange,
@@ -164,11 +147,20 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
         List<String> roles = (List<String>) result.getOrDefault("roles", List.of());
         log.info("🔹 Token validated. Realm: {}, Product: {}, Roles: {}", realm, product, roles);
 
+        // Adjust path to match downstream service (strip /keycloak)
         String adjustedPath = path.replaceFirst("/keycloak", "");
 
+        // Roles allowed to forward directly
         List<String> allowedRoles = List.of(
-                "admin", "manage-users", "manage-realm", "create-client", "impersonation",
-                "manage-account", "view-profile", "admin-client", "realm-admin"
+                "admin",
+                "manage-users",
+                "manage-realm",
+                "create-client",
+                "impersonation",
+                "manage-account",
+                "view-profile",
+                "admin-client",
+                "realm-admin"
         );
 
         boolean isAdmin = roles.stream().anyMatch(allowedRoles::contains);
@@ -178,19 +170,20 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
             return forwardRequest(exchange, "http://identity-service:8087" + adjustedPath, token);
         }
 
+        // Check other roles for URL access
         boolean allowed = false;
         RealmProductRoleUrl matchedUrl = null;
-        outer:
-        for (String roleStr : roles) {
-            List<RealmProductRoleUrl> urls = gatewayRoleService.getUrls(realm, product, roleStr);
+        for (String role : roles) {
+            List<RealmProductRoleUrl> urls = gatewayRoleService.getUrls(realm, product, role);
             if (urls == null) continue;
             for (RealmProductRoleUrl url : urls) {
                 if (url.getUri() != null && adjustedPath.equals(url.getUri())) {
                     allowed = true;
                     matchedUrl = url;
-                    break outer;
+                    break;
                 }
             }
+            if (allowed) break;
         }
 
         if (allowed && matchedUrl != null) {
@@ -212,30 +205,46 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
         WebClient webClient = webClientBuilder.build();
         HttpMethod method = request.getMethod();
 
-        return DataBufferUtils.join(request.getBody())
+        Mono<byte[]> bodyMono = DataBufferUtils.join(request.getBody())
                 .map(dataBuffer -> {
                     byte[] bytes = new byte[dataBuffer.readableByteCount()];
                     dataBuffer.read(bytes);
                     DataBufferUtils.release(dataBuffer);
                     return bytes;
                 })
-                .defaultIfEmpty(new byte[0])
-                .flatMap(bodyBytes -> {
-                    WebClient.RequestBodySpec requestSpec = webClient.method(method)
-                            .uri(targetUrl)
-                            .headers(h -> request.getHeaders().forEach((k, v) -> h.addAll(k, v)));
+                .defaultIfEmpty(new byte[0]);
 
-                    if (method == HttpMethod.POST || method == HttpMethod.PUT) {
-                        requestSpec.contentType(MediaType.APPLICATION_JSON).bodyValue(bodyBytes);
-                    }
+        return bodyMono.flatMap(bodyBytes -> {
+            WebClient.RequestBodySpec requestSpec = webClient.method(method)
+                    .uri(targetUrl)
+                    .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
+                    .headers(h -> request.getHeaders().forEach((k, v) -> h.put(k, v)));
 
-                    return requestSpec.exchangeToMono(clientResponse -> {
-                        response.setStatusCode(clientResponse.statusCode());
-                        response.getHeaders().addAll(clientResponse.headers().asHttpHeaders());
-                        return clientResponse.bodyToMono(byte[].class)
-                                .flatMap(body -> response.writeWith(Mono.just(response.bufferFactory().wrap(body))));
-                    });
-                });
+            if (method == HttpMethod.POST || method == HttpMethod.PUT) {
+                requestSpec.contentType(MediaType.APPLICATION_JSON).bodyValue(bodyBytes);
+            }
+
+            return requestSpec.exchangeToMono(clientResponse -> {
+                response.setStatusCode(clientResponse.statusCode());
+                response.getHeaders().addAll(clientResponse.headers().asHttpHeaders());
+                return clientResponse.bodyToMono(byte[].class)
+                        .flatMap(body -> response.writeWith(Mono.just(response.bufferFactory().wrap(body))));
+            });
+        });
+    }
+
+    private String buildCurlCommand(ServerHttpRequest request) {
+        StringBuilder curl = new StringBuilder("curl -X ")
+                .append(request.getMethod())
+                .append(" '")
+                .append(request.getURI())
+                .append("'");
+
+        request.getHeaders().forEach((key, values) ->
+                values.forEach(value -> curl.append(" \\\n  -H '").append(key).append(": ").append(value).append("'"))
+        );
+
+        return curl.toString();
     }
 
     @Override

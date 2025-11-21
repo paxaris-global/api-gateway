@@ -218,7 +218,6 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
         return bodyMono.flatMap(bodyBytes -> {
             WebClient.RequestBodySpec requestSpec = webClient.method(method)
                     .uri(targetUrl)
-                    .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
                     .headers(h -> request.getHeaders().forEach((k, v) -> h.put(k, v)));
 
             if (method == HttpMethod.POST || method == HttpMethod.PUT) {
@@ -233,6 +232,7 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
             });
         });
     }
+
 
     private String buildCurlCommand(ServerHttpRequest request) {
         StringBuilder curl = new StringBuilder("curl -X ")

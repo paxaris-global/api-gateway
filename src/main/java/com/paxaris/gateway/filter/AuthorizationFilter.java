@@ -44,14 +44,15 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
         String path = request.getURI().getPath();
 
         log.info("➡️ [GATEWAY] Incoming request: {} {}", request.getMethod(), path);
-        log.info("📟 [CURL] Equivalent command:\n{}", buildCurlCommand(request));
 
         // Skip auth for open endpoints
         if (path.contains("/login") || path.contains("/signup")) {
+            log.info("🔓 Skipping auth for open endpoint: {}", path);
+
             if (path.contains("/login")) {
                 return handleLoginRequest(exchange);
             }
-            log.info("🔓 Skipping auth for open endpoint: {}", path);
+
             return chain.filter(exchange);
         }
 
@@ -95,12 +96,14 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
                     String bodyStr = new String(bodyBytes, StandardCharsets.UTF_8);
                     log.info("📦 Login request body: {}", bodyStr);
 
+                    // Correctly create RequestBodySpec and set content type
                     WebClient.RequestBodySpec requestSpec = webClient.post()
                             .uri("/login")
-                            .contentType(MediaType.APPLICATION_JSON)
-                            .bodyValue(bodyStr);
+                            .contentType(MediaType.APPLICATION_JSON);
 
-                    return requestSpec.retrieve()
+                    WebClient.RequestHeadersSpec<?> specWithBody = requestSpec.bodyValue(bodyStr);
+
+                    return specWithBody.retrieve()
                             .bodyToMono(new ParameterizedTypeReference<Map<String, Object>>() {})
                             .flatMap(identityResponse -> {
                                 try {
@@ -108,17 +111,17 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
                                     String product = identityResponse.getOrDefault("product", "").toString();
                                     List<String> roles = (List<String>) identityResponse.getOrDefault("roles", List.of());
 
-                                    // Build productUrls
+                                    // Build productUrls with URL info
                                     List<Map<String, Object>> productUrls = roles.stream()
-                                            .flatMap(role -> {
-                                                List<RealmProductRoleUrl> urls = gatewayRoleService.getUrls(realm, product, role);
+                                            .flatMap(roleStr -> {
+                                                List<RealmProductRoleUrl> urls = gatewayRoleService.getUrls(realm, product, roleStr);
                                                 if (urls == null) return List.<Map<String, Object>>of().stream();
                                                 return urls.stream().map(url -> {
                                                     Map<String, Object> map = new HashMap<>();
                                                     map.put("url", url.getUrl() + url.getUri());
                                                     map.put("baseUrl", url.getUrl());
                                                     map.put("uri", url.getUri());
-                                                    map.put("role", role);
+                                                    map.put("role", roleStr);
                                                     return map;
                                                 });
                                             })
@@ -237,20 +240,6 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
                         .flatMap(body -> response.writeWith(Mono.just(response.bufferFactory().wrap(body))));
             });
         });
-    }
-
-    private String buildCurlCommand(ServerHttpRequest request) {
-        StringBuilder curl = new StringBuilder("curl -X ")
-                .append(request.getMethod())
-                .append(" '")
-                .append(request.getURI())
-                .append("'");
-
-        request.getHeaders().forEach((key, values) ->
-                values.forEach(value -> curl.append(" \\\n  -H '").append(key).append(": ").append(value).append("'"))
-        );
-
-        return curl.toString();
     }
 
     @Override

@@ -18,6 +18,7 @@ import org.springframework.http.server.reactive.ServerHttpResponse;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.server.ServerWebExchange;
+import org.springframework.core.io.buffer.DataBuffer;
 import org.springframework.core.io.buffer.DataBufferUtils;
 import reactor.core.publisher.Mono;
 
@@ -45,8 +46,7 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
 
         log.info("➡️ [GATEWAY] Incoming request: {} {}", request.getMethod(), path);
 
-        // Skip auth for open endpoints
-        if (path.contains("/login") || path.contains("/signup")) {
+        if (path.contains("/login") || path.contains("/signup") || path.contains("/validate")) {
             log.info("🔓 Skipping auth for open endpoint: {}", path);
 
             if (path.contains("/login")) {
@@ -73,7 +73,7 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
                 .bodyToMono(new ParameterizedTypeReference<Map<String, Object>>() {})
                 .flatMap(result -> handleValidationResponse(result, path, response, exchange, token))
                 .onErrorResume(e -> {
-                    log.error("💥 [GATEWAY] Identity Service validation failed: {}", e.getMessage(), e);
+                    log.error("💥 [GATEWAY] Identity Service validation failed", e);
                     response.setStatusCode(HttpStatus.INTERNAL_SERVER_ERROR);
                     return response.setComplete();
                 });
@@ -84,6 +84,7 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
         ServerHttpResponse response = exchange.getResponse();
         WebClient webClient = webClientBuilder.baseUrl("http://identity-service:8087").build();
 
+        // Read body safely as bytes
         return DataBufferUtils.join(request.getBody())
                 .map(dataBuffer -> {
                     byte[] bytes = new byte[dataBuffer.readableByteCount()];
@@ -96,14 +97,16 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
                     String bodyStr = new String(bodyBytes, StandardCharsets.UTF_8);
                     log.info("📦 Login request body: {}", bodyStr);
 
-                    // Correctly create RequestBodySpec and set content type
-                    WebClient.RequestBodySpec requestSpec = webClient.post()
+                    WebClient.RequestBodySpec requestSpec = webClient.method(request.getMethod())
                             .uri("/login")
+                            .headers(h -> request.getHeaders().forEach((k, v) -> h.addAll(k, v)))
                             .contentType(MediaType.APPLICATION_JSON);
 
-                    WebClient.RequestHeadersSpec<?> specWithBody = requestSpec.bodyValue(bodyStr);
+                    if (request.getMethod() == HttpMethod.POST || request.getMethod() == HttpMethod.PUT) {
+                        requestSpec.bodyValue(bodyStr);
+                    }
 
-                    return specWithBody.retrieve()
+                    return requestSpec.retrieve()
                             .bodyToMono(new ParameterizedTypeReference<Map<String, Object>>() {})
                             .flatMap(identityResponse -> {
                                 try {
@@ -111,7 +114,7 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
                                     String product = identityResponse.getOrDefault("product", "").toString();
                                     List<String> roles = (List<String>) identityResponse.getOrDefault("roles", List.of());
 
-                                    // Build productUrls with URL info
+                                    // Build productUrls
                                     List<Map<String, Object>> productUrls = roles.stream()
                                             .flatMap(roleStr -> {
                                                 List<RealmProductRoleUrl> urls = gatewayRoleService.getUrls(realm, product, roleStr);
@@ -164,13 +167,8 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
         String adjustedPath = path.replaceFirst("/keycloak", "");
 
         List<String> allowedRoles = List.of(
-                "admin",
-                "manage-users",
-                "manage-realm",
-                "create-client",
-                "impersonation",
-                "manage-account",
-                "view-profile"
+                "admin", "manage-users", "manage-realm", "create-client", "impersonation",
+                "manage-account", "view-profile", "admin-client", "realm-admin"
         );
 
         boolean isAdmin = roles.stream().anyMatch(allowedRoles::contains);
@@ -182,17 +180,17 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
 
         boolean allowed = false;
         RealmProductRoleUrl matchedUrl = null;
-        for (String role : roles) {
-            List<RealmProductRoleUrl> urls = gatewayRoleService.getUrls(realm, product, role);
+        outer:
+        for (String roleStr : roles) {
+            List<RealmProductRoleUrl> urls = gatewayRoleService.getUrls(realm, product, roleStr);
             if (urls == null) continue;
             for (RealmProductRoleUrl url : urls) {
                 if (url.getUri() != null && adjustedPath.equals(url.getUri())) {
                     allowed = true;
                     matchedUrl = url;
-                    break;
+                    break outer;
                 }
             }
-            if (allowed) break;
         }
 
         if (allowed && matchedUrl != null) {
@@ -214,32 +212,30 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
         WebClient webClient = webClientBuilder.build();
         HttpMethod method = request.getMethod();
 
-        Mono<byte[]> bodyMono = DataBufferUtils.join(request.getBody())
+        return DataBufferUtils.join(request.getBody())
                 .map(dataBuffer -> {
                     byte[] bytes = new byte[dataBuffer.readableByteCount()];
                     dataBuffer.read(bytes);
                     DataBufferUtils.release(dataBuffer);
                     return bytes;
                 })
-                .defaultIfEmpty(new byte[0]);
+                .defaultIfEmpty(new byte[0])
+                .flatMap(bodyBytes -> {
+                    WebClient.RequestBodySpec requestSpec = webClient.method(method)
+                            .uri(targetUrl)
+                            .headers(h -> request.getHeaders().forEach((k, v) -> h.addAll(k, v)));
 
-        return bodyMono.flatMap(bodyBytes -> {
-            WebClient.RequestBodySpec requestSpec = webClient.method(method)
-                    .uri(targetUrl)
-                    .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
-                    .headers(h -> request.getHeaders().forEach((k, v) -> h.put(k, v)));
+                    if (method == HttpMethod.POST || method == HttpMethod.PUT) {
+                        requestSpec.contentType(MediaType.APPLICATION_JSON).bodyValue(bodyBytes);
+                    }
 
-            if (method == HttpMethod.POST || method == HttpMethod.PUT) {
-                requestSpec.contentType(MediaType.APPLICATION_JSON).bodyValue(bodyBytes);
-            }
-
-            return requestSpec.exchangeToMono(clientResponse -> {
-                response.setStatusCode(clientResponse.statusCode());
-                response.getHeaders().addAll(clientResponse.headers().asHttpHeaders());
-                return clientResponse.bodyToMono(byte[].class)
-                        .flatMap(body -> response.writeWith(Mono.just(response.bufferFactory().wrap(body))));
-            });
-        });
+                    return requestSpec.exchangeToMono(clientResponse -> {
+                        response.setStatusCode(clientResponse.statusCode());
+                        response.getHeaders().addAll(clientResponse.headers().asHttpHeaders());
+                        return clientResponse.bodyToMono(byte[].class)
+                                .flatMap(body -> response.writeWith(Mono.just(response.bufferFactory().wrap(body))));
+                    });
+                });
     }
 
     @Override

@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.paxaris.gateway.service.GatewayRoleService;
 import dto.RealmProductRoleUrl;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.cloud.gateway.filter.GlobalFilter;
 import org.springframework.cloud.gateway.filter.GatewayFilterChain;
@@ -29,6 +30,9 @@ import java.util.Map;
 @Slf4j
 @RequiredArgsConstructor
 public class AuthorizationFilter implements GlobalFilter, Ordered {
+
+    @Value("${IDENTITY_SERVICE_URL}")
+    private String identityServiceUrl;
 
     private final WebClient.Builder webClientBuilder;
     private final GatewayRoleService gatewayRoleService;
@@ -57,7 +61,8 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
         }
 
         String token = authHeader.substring(7).trim();
-        WebClient webClient = webClientBuilder.baseUrl("http://identity-service:8087").build();
+        WebClient webClient = webClientBuilder.baseUrl(identityServiceUrl).build();
+
 
         return webClient.get()
                 .uri("/validate")
@@ -104,7 +109,8 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
 
         if (isAdmin) {
             log.info("👑 Admin/allowed role detected, forwarding request to Identity Service");
-            return forwardRequest(exchange, "http://identity-service:8087" + adjustedPath, token);
+            return forwardRequest(exchange, identityServiceUrl + adjustedPath, token);
+
         }
 
         // Check other roles for URL access

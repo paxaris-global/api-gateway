@@ -28,11 +28,11 @@ spring:
             - StripPrefix=1
 
         - id: identity_service_route
-          uri: http://identity-service:8087
+          uri: ${IDENTITY_SERVICE_URL}
           predicates:
-            - Path=/identity/**
+              - Path=/identity/**
           filters:
-            - StripPrefix=1
+              - StripPrefix=1
 
 
 

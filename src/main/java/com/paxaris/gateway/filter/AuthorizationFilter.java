@@ -113,7 +113,7 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
 
         }
 
-        // Check other roles for URL access
+        // Check other roles for URL acces
         boolean allowed = false;
         RealmProductRoleUrl matchedUrl = null;
         for (String role : roles) {

@@ -93,7 +93,7 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
         log.info("🔹 Token validated. Realm: {}, Product: {}, Roles: {}", realm, product, roles);
 
         // Adjust path to match downstream service (strip /keycloak)
-        String adjustedPath = path.replaceFirst("/keycloak", "");
+        String adjustedPath = path.replaceFirst("/identity", "");
 
         // Roles allowed to forward directly
         List<String> allowedRoles = List.of(

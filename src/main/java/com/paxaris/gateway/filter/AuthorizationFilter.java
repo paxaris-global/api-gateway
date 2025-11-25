@@ -110,7 +110,7 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
 
         if (isAdmin) {
             log.info("👑 Admin/allowed role detected, forwarding request to Identity Service");
-            return forwardRequest(exchange, identityServiceUrl + adjustedPath, token);
+            return forwardRequest(exchange, identityServiceUrl , token);
 
         }
 

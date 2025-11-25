@@ -23,6 +23,7 @@ import org.springframework.core.io.buffer.DataBufferUtils;
 import reactor.core.publisher.Mono;
 
 import java.net.URI;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Map;
 
@@ -164,8 +165,10 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
                     .headers(h -> request.getHeaders().forEach((k, v) -> h.put(k, v)));
 
             if (method == HttpMethod.POST || method == HttpMethod.PUT) {
-                requestSpec.contentType(MediaType.APPLICATION_JSON).bodyValue(bodyBytes);
+                String bodyString = new String(bodyBytes, StandardCharsets.UTF_8);
+                requestSpec.contentType(MediaType.APPLICATION_JSON).bodyValue(bodyString);
             }
+
 
             return requestSpec.exchangeToMono(clientResponse -> {
                 response.setStatusCode(clientResponse.statusCode());

@@ -92,10 +92,20 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
         List<String> roles = (List<String>) result.getOrDefault("roles", List.of());
         log.info("🔹 Token validated. Realm: {}, Product: {}, Roles: {}", realm, product, roles);
 
-        // Adjust path to match downstream service (strip /keycloak)
+        // Adjust path to match downstream service
         String adjustedPath = path.replaceFirst("/identity", "");
 
-        // Roles allowed to forward directly
+        // -----------------------------
+        // NEW: Master/admin token special handling
+        // -----------------------------
+        // If the token is from master realm and product is admin-cli, allow special admin endpoints
+        boolean isMasterAdminToken = "master".equals(realm) && "admin-cli".equals(product);
+        boolean masterAccessAllowed = isMasterAdminToken && adjustedPath.startsWith("/clients"); // allow client creation
+
+        // -----------------------------
+        // EXISTING: User token handling
+        // -----------------------------
+        // Check if user token has any of the allowed roles
         List<String> allowedRoles = List.of(
                 "admin",
                 "manage-users",
@@ -105,39 +115,36 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
                 "manage-account",
                 "view-profile"
         );
+        boolean hasAllowedRole = roles.stream().anyMatch(allowedRoles::contains);
 
-        boolean isAdmin = roles.stream().anyMatch(allowedRoles::contains);
-
-        if (isAdmin) {
-            log.info("👑 Admin/allowed role detected, forwarding request to Identity Service");
+        // -----------------------------
+        // UPDATED: Forward if master token or user has allowed roles
+        // -----------------------------
+        if (masterAccessAllowed || hasAllowedRole) { // <-- updated condition
+            log.info("👑 Access granted, forwarding request to Identity Service");
             return forwardRequest(exchange, identityServiceUrl, token);
-
         }
 
-        // Check other roles for URL acces
-        boolean allowed = false;
-        RealmProductRoleUrl matchedUrl = null;
+        // -----------------------------
+        // EXISTING: Role-based URL mapping check for user tokens
+        // -----------------------------
         for (String role : roles) {
             List<RealmProductRoleUrl> urls = gatewayRoleService.getUrls(realm, product, role);
             if (urls == null) continue;
             for (RealmProductRoleUrl url : urls) {
-                if (url.getUri() != null && adjustedPath.equals(url.getUri())) {
-                    allowed = true;
-                    matchedUrl = url;
-                    break;
+                if (adjustedPath.equals(url.getUri())) {
+                    String redirectTo = url.getUrl() + url.getUri();
+                    log.info("🚀 Redirecting to downstream service: {}", redirectTo);
+                    response.setStatusCode(HttpStatus.FOUND);
+                    response.getHeaders().setLocation(URI.create(redirectTo));
+                    return response.setComplete();
                 }
             }
-            if (allowed) break;
         }
 
-        if (allowed && matchedUrl != null) {
-            String redirectTo = matchedUrl.getUrl() + matchedUrl.getUri();
-            log.info("🚀 Redirecting to downstream service: {}", redirectTo);
-            response.setStatusCode(HttpStatus.FOUND);
-            response.getHeaders().setLocation(URI.create(redirectTo));
-            return response.setComplete();
-        }
-
+        // -----------------------------
+        // DENY ACCESS if none of the conditions match
+        // -----------------------------
         log.warn("❌ Access denied for URL: {}", path);
         response.setStatusCode(HttpStatus.FORBIDDEN);
         return response.setComplete();

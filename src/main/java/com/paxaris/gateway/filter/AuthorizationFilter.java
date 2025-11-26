@@ -159,18 +159,19 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
                 .defaultIfEmpty(new byte[0]);
 
         return bodyMono.flatMap(bodyBytes -> {
-            String forwardUrl = targetUrl + request.getURI().getPath() +
-                    (request.getURI().getQuery() != null ? "?" + request.getURI().getQuery() : ""); // Changed client
+            String path = request.getURI().getPath();
+            String query = request.getURI().getQuery();
+            String forwardUrl = targetUrl.replaceAll("/$", "") + path + (query != null ? "?" + query : "");
+
             WebClient.RequestBodySpec requestSpec = webClient.method(method)
                     .uri(forwardUrl)
                     .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
-                    .headers(h -> request.getHeaders().forEach((k, v) -> h.put(k, v)));
+                    .headers(h -> h.addAll(request.getHeaders())); // safer header forwarding
 
             if (method == HttpMethod.POST || method == HttpMethod.PUT) {
-                String bodyString = new String(bodyBytes, StandardCharsets.UTF_8);
-                requestSpec.contentType(MediaType.APPLICATION_JSON).bodyValue(bodyString);
+                requestSpec.contentType(MediaType.APPLICATION_JSON)
+                        .bodyValue(bodyBytes); // forward raw bytes instead of String
             }
-
 
             return requestSpec.exchangeToMono(clientResponse -> {
                 response.setStatusCode(clientResponse.statusCode());
@@ -180,6 +181,7 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
             });
         });
     }
+
 
     private String buildCurlCommand(ServerHttpRequest request) {
         StringBuilder curl = new StringBuilder("curl -X ")

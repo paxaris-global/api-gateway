@@ -31,7 +31,8 @@ spring:
           uri: ${IDENTITY_SERVICE_URL}
           predicates:
               - Path=/identity/**
-
+          filters:
+              - StripPrefix=1
 
 
 

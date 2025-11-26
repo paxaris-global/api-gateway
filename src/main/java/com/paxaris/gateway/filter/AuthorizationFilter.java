@@ -110,7 +110,7 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
 
         if (isAdmin) {
             log.info("👑 Admin/allowed role detected, forwarding request to Identity Service");
-            return forwardRequest(exchange, identityServiceUrl , token);
+            return forwardRequest(exchange, identityServiceUrl, token);
 
         }
 
@@ -159,8 +159,10 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
                 .defaultIfEmpty(new byte[0]);
 
         return bodyMono.flatMap(bodyBytes -> {
+            String forwardUrl = targetUrl + request.getURI().getPath() +
+                    (request.getURI().getQuery() != null ? "?" + request.getURI().getQuery() : ""); // Changed client
             WebClient.RequestBodySpec requestSpec = webClient.method(method)
-                    .uri(targetUrl)
+                    .uri(forwardUrl)
                     .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
                     .headers(h -> request.getHeaders().forEach((k, v) -> h.put(k, v)));
 

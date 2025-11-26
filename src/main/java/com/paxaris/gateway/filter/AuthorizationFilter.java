@@ -163,6 +163,9 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
             String query = request.getURI().getQuery();
             String forwardUrl = targetUrl.replaceAll("/$", "") + path + (query != null ? "?" + query : "");
 
+            // LOG THE FORWARD URL
+            log.info("➡️ [GATEWAY] Forwarding request to URL: {}", forwardUrl);
+
             WebClient.RequestBodySpec requestSpec = webClient.method(method)
                     .uri(forwardUrl)
                     .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
@@ -181,6 +184,7 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
             });
         });
     }
+
 
 
     private String buildCurlCommand(ServerHttpRequest request) {

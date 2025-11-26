@@ -98,7 +98,9 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
         // -----------------------------
         // NEW: Allow master token if azp == admin-cli
         // -----------------------------
-        if ("admin-cli".equals(azp)) { // <-- NEW: master token bypass
+        if ("admin-cli".equals(azp)) { // <-- NEW: mast
+
+            // er token bypass
             log.info("👑 Master token detected (azp=admin-cli), forwarding request to Identity Service");
             return forwardRequest(exchange, identityServiceUrl, token);
         }

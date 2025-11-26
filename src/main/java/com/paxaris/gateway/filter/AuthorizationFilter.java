@@ -166,6 +166,26 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
             // LOG THE FORWARD URL
             log.info("➡️ [GATEWAY] Forwarding request to URL: {}", forwardUrl);
 
+            // LOG THE REQUEST BODY
+            if (bodyBytes.length > 0) {
+                try {
+                    String bodyString = new String(bodyBytes, StandardCharsets.UTF_8);
+                    // Try to pretty-print JSON if possible
+                    if (bodyString.trim().startsWith("{") || bodyString.trim().startsWith("[")) {
+                        Object json = objectMapper.readValue(bodyString, Object.class);
+                        String prettyJson = objectMapper.writerWithDefaultPrettyPrinter().writeValueAsString(json);
+                        log.info("📦 [GATEWAY] Forwarding request body:\n{}", prettyJson);
+                    } else {
+                        log.info("📦 [GATEWAY] Forwarding request body: {}", bodyString);
+                    }
+                } catch (Exception e) {
+                    log.warn("⚠️ Failed to parse request body for logging, logging raw bytes", e);
+                    log.info("📦 [GATEWAY] Forwarding request body (raw): {}", new String(bodyBytes, StandardCharsets.UTF_8));
+                }
+            } else {
+                log.info("📦 [GATEWAY] No request body to forward");
+            }
+
             WebClient.RequestBodySpec requestSpec = webClient.method(method)
                     .uri(forwardUrl)
                     .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
@@ -173,7 +193,7 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
 
             if (method == HttpMethod.POST || method == HttpMethod.PUT) {
                 requestSpec.contentType(MediaType.APPLICATION_JSON)
-                        .bodyValue(bodyBytes); // forward raw bytes instead of String
+                        .bodyValue(bodyBytes); // forward raw bytes
             }
 
             return requestSpec.exchangeToMono(clientResponse -> {
@@ -184,6 +204,7 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
             });
         });
     }
+
 
 
 

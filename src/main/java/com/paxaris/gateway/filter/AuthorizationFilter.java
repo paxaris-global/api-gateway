@@ -90,22 +90,22 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
         String realm = result.getOrDefault("realm", "").toString();
         String product = result.getOrDefault("product", "").toString();
         List<String> roles = (List<String>) result.getOrDefault("roles", List.of());
-        log.info("🔹 Token validated. Realm: {}, Product: {}, Roles: {}", realm, product, roles);
+        String azp = result.getOrDefault("azp", "").toString(); // <-- NEW: capture azp
+        log.info("🔹 Token validated. Realm: {}, Product: {}, Roles: {}, azp: {}", realm, product, roles, azp);
 
-        // Adjust path to match downstream service
         String adjustedPath = path.replaceFirst("/identity", "");
 
         // -----------------------------
-        // NEW: Master/admin token special handling
+        // NEW: Allow master token if azp == admin-cli
         // -----------------------------
-        // If the token is from master realm and product is admin-cli, allow special admin endpoints
-        boolean isMasterAdminToken = "master".equals(realm) && "admin-cli".equals(product);
-        boolean masterAccessAllowed = isMasterAdminToken && adjustedPath.startsWith("/clients"); // allow client creation
+        if ("admin-cli".equals(azp)) { // <-- NEW: master token bypass
+            log.info("👑 Master token detected (azp=admin-cli), forwarding request to Identity Service");
+            return forwardRequest(exchange, identityServiceUrl, token);
+        }
 
         // -----------------------------
         // EXISTING: User token handling
         // -----------------------------
-        // Check if user token has any of the allowed roles
         List<String> allowedRoles = List.of(
                 "admin",
                 "manage-users",
@@ -117,11 +117,8 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
         );
         boolean hasAllowedRole = roles.stream().anyMatch(allowedRoles::contains);
 
-        // -----------------------------
-        // UPDATED: Forward if master token or user has allowed roles
-        // -----------------------------
-        if (masterAccessAllowed || hasAllowedRole) { // <-- updated condition
-            log.info("👑 Access granted, forwarding request to Identity Service");
+        if (hasAllowedRole) {
+            log.info("👑 User token with allowed roles, forwarding request to Identity Service");
             return forwardRequest(exchange, identityServiceUrl, token);
         }
 
@@ -142,9 +139,6 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
             }
         }
 
-        // -----------------------------
-        // DENY ACCESS if none of the conditions match
-        // -----------------------------
         log.warn("❌ Access denied for URL: {}", path);
         response.setStatusCode(HttpStatus.FORBIDDEN);
         return response.setComplete();

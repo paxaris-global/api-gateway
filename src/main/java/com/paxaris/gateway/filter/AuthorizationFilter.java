@@ -172,6 +172,7 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
 
             log.info("➡️ [GATEWAY] Forwarding request to URL: {}", forwardUrl);
 
+            // Log request body
             if (bodyBytes.length > 0) {
                 try {
                     String bodyString = new String(bodyBytes, StandardCharsets.UTF_8);
@@ -183,18 +184,21 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
                         log.info("📦 [GATEWAY] Forwarding request body: {}", bodyString);
                     }
                 } catch (Exception e) {
-                    log.warn("⚠️ Failed to parse request body for logging, logging raw bytes", e);
+                    log.warn("⚠️ Failed to parse request body, logging raw bytes", e);
                     log.info("📦 [GATEWAY] Forwarding request body (raw): {}", new String(bodyBytes, StandardCharsets.UTF_8));
                 }
             } else {
                 log.info("📦 [GATEWAY] No request body to forward");
             }
 
+            // Log the token being forwarded
+            log.info("🔑 [GATEWAY] Forwarding Authorization header: Bearer {}", token);
+
             WebClient.RequestBodySpec requestSpec = webClient.method(method)
                     .uri(forwardUrl)
-                    .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
-                    .headers(h -> h.addAll(request.getHeaders()));
+                    .header(HttpHeaders.AUTHORIZATION, "Bearer " + token); // ensures correct token
 
+            // Set JSON body for POST/PUT
             if (method == HttpMethod.POST || method == HttpMethod.PUT) {
                 requestSpec.contentType(MediaType.APPLICATION_JSON)
                         .bodyValue(bodyBytes);

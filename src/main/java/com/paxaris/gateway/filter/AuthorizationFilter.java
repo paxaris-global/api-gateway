@@ -96,20 +96,14 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
         String azp = result.getOrDefault("azp", "").toString(); // capture azp
         log.info("🔹 Token validated. Realm: {}, Product: {}, Roles: {}, azp: {}", realm, product, roles, azp);
 
-        // If path is admin pattern: /identity/{realm}/admin/**
+        // Admin endpoint check: /identity/{realm}/admin/**
         if (path.matches("^/identity/[^/]+/admin/.*")) {
-            // Admin endpoint — require admin token or admin-like roles
-            boolean isAdminAzp = "admin-cli".equals(azp);
-            boolean hasAdminRoles = roles.stream().anyMatch(r ->
-                    r.equals("manage-users") || r.equals("manage-clients") || r.equals("manage-realm") || r.equals("realm-admin"));
-
-            if (isAdminAzp || hasAdminRoles) {
-                // Forward to Keycloak admin route — gateway application.yml contains a route that rewrites the path to /admin/realms/{realm}/...
-                log.info("👑 Admin access granted. Forwarding admin request to Keycloak via gateway (path={})", path);
-                // Build a forward exchange to the same path — actual Gateway route will rewrite to keycloak admin path
+            // Only allow if token is master token (azp = admin-cli)
+            if ("admin-cli".equals(azp)) {
+                log.info("👑 Admin access granted via master token. Forwarding request to Keycloak (path={})", path);
                 return forwardRequest(exchange, keycloakBaseUrl, token);
             } else {
-                log.warn("⛔ Admin access denied for path {} - token lacks admin privileges", path);
+                log.warn("⛔ Admin access denied for path {} - token is not master token", path);
                 response.setStatusCode(HttpStatus.FORBIDDEN);
                 return response.setComplete();
             }

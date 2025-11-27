@@ -4,8 +4,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.paxaris.gateway.service.GatewayRoleService;
 import dto.RealmProductRoleUrl;
 import lombok.RequiredArgsConstructor;
-import org.springframework.beans.factory.annotation.Value;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.cloud.gateway.filter.GlobalFilter;
 import org.springframework.cloud.gateway.filter.GatewayFilterChain;
 import org.springframework.core.Ordered;
@@ -34,6 +34,9 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
 
     @Value("${IDENTITY_SERVICE_URL}")
     private String identityServiceUrl;
+
+    @Value("${KEYCLOAK_BASE_URL}")
+    private String keycloakBaseUrl;
 
     private final WebClient.Builder webClientBuilder;
     private final GatewayRoleService gatewayRoleService;
@@ -64,7 +67,7 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
         String token = authHeader.substring(7).trim();
         WebClient webClient = webClientBuilder.baseUrl(identityServiceUrl).build();
 
-
+        // Validate token via Identity service
         return webClient.get()
                 .uri("/validate")
                 .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
@@ -90,24 +93,31 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
         String realm = result.getOrDefault("realm", "").toString();
         String product = result.getOrDefault("product", "").toString();
         List<String> roles = (List<String>) result.getOrDefault("roles", List.of());
-        String azp = result.getOrDefault("azp", "").toString(); // <-- NEW: capture azp
+        String azp = result.getOrDefault("azp", "").toString(); // capture azp
         log.info("🔹 Token validated. Realm: {}, Product: {}, Roles: {}, azp: {}", realm, product, roles, azp);
 
-        String adjustedPath = path.replaceFirst("/identity", "");
+        // If path is admin pattern: /identity/{realm}/admin/**
+        if (path.matches("^/identity/[^/]+/admin/.*")) {
+            // Admin endpoint — require admin token or admin-like roles
+            boolean isAdminAzp = "admin-cli".equals(azp);
+            boolean hasAdminRoles = roles.stream().anyMatch(r ->
+                    r.equals("manage-users") || r.equals("manage-clients") || r.equals("manage-realm") || r.equals("realm-admin"));
 
-        // -----------------------------
-        // NEW: Allow master token if azp == admin-cli
-        // -----------------------------
-        if ("admin-cli".equals(azp)) { // <-- NEW: mast
-
-            // er token bypass
-            log.info("👑 Master token detected (azp=admin-cli), forwarding request to Identity Service");
-            return forwardRequest(exchange, identityServiceUrl, token);
+            if (isAdminAzp || hasAdminRoles) {
+                // Forward to Keycloak admin route — gateway application.yml contains a route that rewrites the path to /admin/realms/{realm}/...
+                log.info("👑 Admin access granted. Forwarding admin request to Keycloak via gateway (path={})", path);
+                // Build a forward exchange to the same path — actual Gateway route will rewrite to keycloak admin path
+                return forwardRequest(exchange, keycloakBaseUrl, token);
+            } else {
+                log.warn("⛔ Admin access denied for path {} - token lacks admin privileges", path);
+                response.setStatusCode(HttpStatus.FORBIDDEN);
+                return response.setComplete();
+            }
         }
 
-        // -----------------------------
-        // EXISTING: User token handling
-        // -----------------------------
+        // Non-admin: normal user handling
+        String adjustedPath = path.replaceFirst("/identity", "");
+
         List<String> allowedRoles = List.of(
                 "admin",
                 "manage-users",
@@ -124,9 +134,7 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
             return forwardRequest(exchange, identityServiceUrl, token);
         }
 
-        // -----------------------------
-        // EXISTING: Role-based URL mapping check for user tokens
-        // -----------------------------
+        // Role-based URL mapping check for user tokens
         for (String role : roles) {
             List<RealmProductRoleUrl> urls = gatewayRoleService.getUrls(realm, product, role);
             if (urls == null) continue;
@@ -146,7 +154,7 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
         return response.setComplete();
     }
 
-    private Mono<Void> forwardRequest(ServerWebExchange exchange, String targetUrl, String token) {
+    private Mono<Void> forwardRequest(ServerWebExchange exchange, String targetBaseUrl, String token) {
         ServerHttpRequest request = exchange.getRequest();
         ServerHttpResponse response = exchange.getResponse();
         WebClient webClient = webClientBuilder.build();
@@ -164,16 +172,13 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
         return bodyMono.flatMap(bodyBytes -> {
             String path = request.getURI().getPath();
             String query = request.getURI().getQuery();
-            String forwardUrl = targetUrl.replaceAll("/$", "") + path + (query != null ? "?" + query : "");
+            String forwardUrl = targetBaseUrl.replaceAll("/$", "") + path + (query != null ? "?" + query : "");
 
-            // LOG THE FORWARD URL
             log.info("➡️ [GATEWAY] Forwarding request to URL: {}", forwardUrl);
 
-            // LOG THE REQUEST BODY
             if (bodyBytes.length > 0) {
                 try {
                     String bodyString = new String(bodyBytes, StandardCharsets.UTF_8);
-                    // Try to pretty-print JSON if possible
                     if (bodyString.trim().startsWith("{") || bodyString.trim().startsWith("[")) {
                         Object json = objectMapper.readValue(bodyString, Object.class);
                         String prettyJson = objectMapper.writerWithDefaultPrettyPrinter().writeValueAsString(json);
@@ -192,11 +197,11 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
             WebClient.RequestBodySpec requestSpec = webClient.method(method)
                     .uri(forwardUrl)
                     .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
-                    .headers(h -> h.addAll(request.getHeaders())); // safer header forwarding
+                    .headers(h -> h.addAll(request.getHeaders()));
 
             if (method == HttpMethod.POST || method == HttpMethod.PUT) {
                 requestSpec.contentType(MediaType.APPLICATION_JSON)
-                        .bodyValue(bodyBytes); // forward raw bytes
+                        .bodyValue(bodyBytes);
             }
 
             return requestSpec.exchangeToMono(clientResponse -> {
@@ -207,9 +212,6 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
             });
         });
     }
-
-
-
 
     private String buildCurlCommand(ServerHttpRequest request) {
         StringBuilder curl = new StringBuilder("curl -X ")

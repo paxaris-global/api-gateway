@@ -11,6 +11,7 @@ com\paxaris\gateway\exception\AuthorizationException.class
 com\paxaris\gateway\filter\AuthorizationFilter.class
 com\paxaris\gateway\GatewayApplication.class
 com\paxaris\gateway\config\DynamicGatewayConfig.class
+com\paxaris\gateway\service\RoleFetchService.class
 com\paxaris\gateway\exception\RoleDataFetchException.class
 com\paxaris\gateway\service\GatewayRedirectService.class
 dto\RealmProductRole$RealmProductRoleBuilder.class

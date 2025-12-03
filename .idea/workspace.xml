@@ -4,7 +4,13 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="11ea62a6-87f7-4f2c-8fdd-334d6d2b58ea" name="Changes" comment="first commit" />
+    <list default="true" id="11ea62a6-87f7-4f2c-8fdd-334d6d2b58ea" name="Changes" comment="first commit">
+      <change afterPath="$PROJECT_DIR$/src/main/java/com/paxaris/gateway/service/RoleFetchService.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/main/java/com/paxaris/gateway/filter/AuthorizationFilter.java" beforeDir="false" afterPath="$PROJECT_DIR$/src/main/java/com/paxaris/gateway/filter/AuthorizationFilter.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/target/api-gateway-0.0.1-SNAPSHOT.jar" beforeDir="false" afterPath="$PROJECT_DIR$/target/api-gateway-0.0.1-SNAPSHOT.jar" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/target/maven-archiver/pom.properties" beforeDir="false" afterPath="$PROJECT_DIR$/target/maven-archiver/pom.properties" afterDir="false" />
+    </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
     <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />

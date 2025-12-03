@@ -5,6 +5,7 @@ C:\Users\Admin\Downloads\api-gateway\src\main\java\dto\RealmProductRole.java
 C:\Users\Admin\Downloads\api-gateway\src\main\java\com\paxaris\gateway\exception\TokenValidationException.java
 C:\Users\Admin\Downloads\api-gateway\src\main\java\com\paxaris\gateway\config\CorsConfig.java
 C:\Users\Admin\Downloads\api-gateway\src\main\java\com\paxaris\gateway\config\WebClientConfig.java
+C:\Users\Admin\Downloads\api-gateway\src\main\java\com\paxaris\gateway\service\RoleFetchService.java
 C:\Users\Admin\Downloads\api-gateway\src\main\java\com\paxaris\gateway\exception\RoleDataFetchException.java
 C:\Users\Admin\Downloads\api-gateway\src\main\java\com\paxaris\gateway\filter\AuthorizationFilter.java
 C:\Users\Admin\Downloads\api-gateway\src\main\java\com\paxaris\gateway\exception\GlobalExceptionHandler.java

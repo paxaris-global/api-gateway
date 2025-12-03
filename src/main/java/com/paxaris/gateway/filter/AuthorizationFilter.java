@@ -38,6 +38,10 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
     @Value("${KEYCLOAK_BASE_URL}")
     private String keycloakBaseUrl;
 
+    // UPDATED ↓
+    @Value("${PROJECT_MANAGEMENT_BASE_URL}")             // UPDATED
+    private String projectManagerBaseUrl;             // UPDATED (used by RoleFetchService)
+
     private final WebClient.Builder webClientBuilder;
     private final GatewayRoleService gatewayRoleService;
     private final ObjectMapper objectMapper = new ObjectMapper();
@@ -51,7 +55,7 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
         log.info("➡️ [GATEWAY] Incoming request: {} {}", request.getMethod(), path);
         log.info("📟 [CURL] Equivalent command:\n{}", buildCurlCommand(request));
 
-        // Skip auth for open endpoints
+        // Skip login & signup
         if (path.contains("/login") || path.contains("/signup")) {
             log.info("🔓 Skipping auth for open endpoint: {}", path);
             return chain.filter(exchange);
@@ -67,7 +71,6 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
         String token = authHeader.substring(7).trim();
         WebClient webClient = webClientBuilder.baseUrl(identityServiceUrl).build();
 
-        // Validate token via Identity service
         return webClient.get()
                 .uri("/validate")
                 .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
@@ -84,6 +87,7 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
     private Mono<Void> handleValidationResponse(Map<String, Object> result, String path,
                                                 ServerHttpResponse response, ServerWebExchange exchange,
                                                 String token) {
+
         if (!"VALID".equals(result.get("status"))) {
             log.warn("❌ Token invalid for URL: {}", path);
             response.setStatusCode(HttpStatus.FORBIDDEN);
@@ -93,50 +97,46 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
         String realm = result.getOrDefault("realm", "").toString();
         String product = result.getOrDefault("product", "").toString();
         List<String> roles = (List<String>) result.getOrDefault("roles", List.of());
-        String azp = result.getOrDefault("azp", "").toString(); // capture azp
+        String azp = result.getOrDefault("azp", "").toString();
+
         log.info("🔹 Token validated. Realm: {}, Product: {}, Roles: {}, azp: {}", realm, product, roles, azp);
 
-        // -----------------------------
-        // 🔹 Master token shortcut
-        // -----------------------------
+        // Master token shortcut
         if ("admin-cli".equals(azp)) {
-            log.info("👑 Master token detected (azp=admin-cli), forwarding request to Identity Service");
+            log.info("👑 Master token detected, forwarding request to Identity Service");
             return forwardRequest(exchange, identityServiceUrl, token);
         }
 
-        // Admin endpoint check: /identity/{realm}/admin/**
+        // Admin rule
         if (path.matches("^/identity/[^/]+/admin/.*")) {
-            log.warn("⛔ Admin access denied for path {} - token is not master token", path);
+            log.warn("⛔ Admin access denied: {}", path);
             response.setStatusCode(HttpStatus.FORBIDDEN);
             return response.setComplete();
         }
 
-        // Non-admin: normal user handling
         String adjustedPath = path.replaceFirst("/identity", "");
 
+        // Allowed system roles
         List<String> allowedRoles = List.of(
-                "admin",
-                "manage-users",
-                "manage-realm",
-                "create-client",
-                "impersonation",
-                "manage-account",
-                "view-profile"
+                "admin", "manage-users", "manage-realm", "create-client",
+                "impersonation", "manage-account", "view-profile"
         );
-        boolean hasAllowedRole = roles.stream().anyMatch(allowedRoles::contains);
 
-        if (hasAllowedRole) {
-            log.info("👑 User token with allowed roles, forwarding request to Identity Service");
+        if (roles.stream().anyMatch(allowedRoles::contains)) {
+            log.info("👑 System role detected, forwarding to Identity Service");
             return forwardRequest(exchange, identityServiceUrl, token);
         }
 
-        // Role-based URL mapping check for user tokens
+        // Role → URL resolution
         for (String role : roles) {
             List<RealmProductRoleUrl> urls = gatewayRoleService.getUrls(realm, product, role);
             if (urls == null) continue;
+
             for (RealmProductRoleUrl url : urls) {
                 if (adjustedPath.equals(url.getUri())) {
-                    String redirectTo = url.getUrl() + url.getUri();
+
+                    // UPDATED ↓
+                    String redirectTo = url.getUrl() + url.getUri();  // UPDATED
                     log.info("🚀 Redirecting to downstream service: {}", redirectTo);
                     response.setStatusCode(HttpStatus.FOUND);
                     response.getHeaders().setLocation(URI.create(redirectTo));
@@ -153,6 +153,7 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
     private Mono<Void> forwardRequest(ServerWebExchange exchange, String targetBaseUrl, String token) {
         ServerHttpRequest request = exchange.getRequest();
         ServerHttpResponse response = exchange.getResponse();
+
         WebClient webClient = webClientBuilder.build();
         HttpMethod method = request.getMethod();
 
@@ -168,37 +169,16 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
         return bodyMono.flatMap(bodyBytes -> {
             String path = request.getURI().getPath();
             String query = request.getURI().getQuery();
-            String forwardUrl = targetBaseUrl.replaceAll("/$", "") + path + (query != null ? "?" + query : "");
+            String forwardUrl = targetBaseUrl.replaceAll("/$", "") + path +
+                    (query != null ? "?" + query : "");
 
             log.info("➡️ [GATEWAY] Forwarding request to URL: {}", forwardUrl);
-
-            // Log request body
-            if (bodyBytes.length > 0) {
-                try {
-                    String bodyString = new String(bodyBytes, StandardCharsets.UTF_8);
-                    if (bodyString.trim().startsWith("{") || bodyString.trim().startsWith("[")) {
-                        Object json = objectMapper.readValue(bodyString, Object.class);
-                        String prettyJson = objectMapper.writerWithDefaultPrettyPrinter().writeValueAsString(json);
-                        log.info("📦 [GATEWAY] Forwarding request body:\n{}", prettyJson);
-                    } else {
-                        log.info("📦 [GATEWAY] Forwarding request body: {}", bodyString);
-                    }
-                } catch (Exception e) {
-                    log.warn("⚠️ Failed to parse request body, logging raw bytes", e);
-                    log.info("📦 [GATEWAY] Forwarding request body (raw): {}", new String(bodyBytes, StandardCharsets.UTF_8));
-                }
-            } else {
-                log.info("📦 [GATEWAY] No request body to forward");
-            }
-
-            // Log the token being forwarded
             log.info("🔑 [GATEWAY] Forwarding Authorization header: Bearer {}", token);
 
             WebClient.RequestBodySpec requestSpec = webClient.method(method)
                     .uri(forwardUrl)
-                    .header(HttpHeaders.AUTHORIZATION, "Bearer " + token); // ensures correct token
+                    .header(HttpHeaders.AUTHORIZATION, "Bearer " + token);
 
-            // Set JSON body for POST/PUT
             if (method == HttpMethod.POST || method == HttpMethod.PUT) {
                 requestSpec.contentType(MediaType.APPLICATION_JSON)
                         .bodyValue(bodyBytes);
@@ -221,9 +201,9 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
                 .append("'");
 
         request.getHeaders().forEach((key, values) ->
-                values.forEach(value -> curl.append(" \\\n  -H '").append(key).append(": ").append(value).append("'"))
+                values.forEach(value ->
+                        curl.append(" \\\n  -H '").append(key).append(": ").append(value).append("'"))
         );
-
         return curl.toString();
     }
 

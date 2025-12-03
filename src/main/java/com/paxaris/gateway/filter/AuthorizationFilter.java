@@ -2,7 +2,7 @@ package com.paxaris.gateway.filter;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.paxaris.gateway.service.GatewayRoleService;
-import com.paxaris.gateway.service.RoleFetchService;   /* (updated line for reload) */
+import com.paxaris.gateway.service.RoleFetchService;
 import dto.RealmProductRoleUrl;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -44,37 +44,40 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
 
     private final WebClient.Builder webClientBuilder;
     private final GatewayRoleService gatewayRoleService;
-    private final RoleFetchService roleFetchService;   /* (updated line for reload) */
+    private final RoleFetchService roleFetchService;
+
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     @Override
     public Mono<Void> filter(ServerWebExchange exchange, GatewayFilterChain chain) {
+
         ServerHttpRequest request = exchange.getRequest();
         ServerHttpResponse response = exchange.getResponse();
         String path = request.getURI().getPath();
 
         log.info("➡️ [GATEWAY] Incoming request: {} {}", request.getMethod(), path);
-        log.info("📟 [CURL] Equivalent command:\n{}", buildCurlCommand(request));
+        log.info("📟 [CURL] Command:\n{}", buildCurlCommand(request));
 
-        // -------------------------------------------
-        // AUTO-REFRESH ROLE CACHE WHEN SIGNUP/CREATE
-        // -------------------------------------------
-        if (path.contains("/signup") || path.contains("/create")) {  /* (updated line for reload) */
-            log.info("🟡 Signup/Create detected → scheduling 10s role reload...");  /* (updated line for reload) */
-            roleFetchService.fetchRolesDelayed();  /* (updated line for reload) */
+        // --------------------------------------------------
+        //  AUTO-REFRESH ROLES ON SIGNUP / CREATE
+        // --------------------------------------------------
+        if (path.contains("/signup") || path.contains("/create")) {
+            log.info("🟡 Signup/Create detected → scheduling role refresh in 10 seconds...");
+            roleFetchService.fetchRolesDelayed();
             return chain.filter(exchange);
         }
-        // -------------------------------------------
+        // --------------------------------------------------
 
         // Skip login
         if (path.contains("/login")) {
-            log.info("🔓 Skipping auth for open endpoint: {}", path);
+            log.info("🔓 Skipping auth for login: {}", path);
             return chain.filter(exchange);
         }
 
         String authHeader = request.getHeaders().getFirst(HttpHeaders.AUTHORIZATION);
+
         if (authHeader == null || !authHeader.startsWith("Bearer ")) {
-            log.warn("❌ Missing or invalid Authorization header");
+            log.warn("❌ Missing Authorization header");
             response.setStatusCode(HttpStatus.UNAUTHORIZED);
             return response.setComplete();
         }
@@ -89,14 +92,15 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
                 .bodyToMono(new ParameterizedTypeReference<Map<String, Object>>() {})
                 .flatMap(result -> handleValidationResponse(result, path, response, exchange, token))
                 .onErrorResume(e -> {
-                    log.error("💥 [GATEWAY] Identity Service validation failed: {}", e.getMessage(), e);
+                    log.error("💥 [GATEWAY] Validation failed: {}", e.getMessage());
                     response.setStatusCode(HttpStatus.INTERNAL_SERVER_ERROR);
                     return response.setComplete();
                 });
     }
 
     private Mono<Void> handleValidationResponse(Map<String, Object> result, String path,
-                                                ServerHttpResponse response, ServerWebExchange exchange,
+                                                ServerHttpResponse response,
+                                                ServerWebExchange exchange,
                                                 String token) {
 
         if (!"VALID".equals(result.get("status"))) {
@@ -110,35 +114,36 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
         List<String> roles = (List<String>) result.getOrDefault("roles", List.of());
         String azp = result.getOrDefault("azp", "").toString();
 
-        log.info("🔹 Token validated. Realm: {}, Product: {}, Roles: {}, azp: {}", realm, product, roles, azp);
+        log.info("🔹 Token OK → Realm={}, Product={}, Roles={}, azp={}", realm, product, roles, azp);
 
-        // Master token shortcut
+        // Master token → always allowed
         if ("admin-cli".equals(azp)) {
-            log.info("👑 Master token detected, forwarding request to Identity Service");
+            log.info("👑 Master token detected");
             return forwardRequest(exchange, identityServiceUrl, token);
         }
 
-        // Admin rule
+        // Block admin paths for normal users
         if (path.matches("^/identity/[^/]+/admin/.*")) {
-            log.warn("⛔ Admin access denied: {}", path);
+            log.warn("⛔ Forbidden admin access: {}", path);
             response.setStatusCode(HttpStatus.FORBIDDEN);
             return response.setComplete();
         }
 
+        // Remove "/identity" for URL matching
         String adjustedPath = path.replaceFirst("/identity", "");
 
-        // Allowed system roles
-        List<String> allowedRoles = List.of(
+        List<String> systemRoles = List.of(
                 "admin", "manage-users", "manage-realm", "create-client",
                 "impersonation", "manage-account", "view-profile"
         );
 
-        if (roles.stream().anyMatch(allowedRoles::contains)) {
-            log.info("👑 System role detected, forwarding to Identity Service");
+        // System roles skip check
+        if (roles.stream().anyMatch(systemRoles::contains)) {
+            log.info("👑 System role detected → forwarding");
             return forwardRequest(exchange, identityServiceUrl, token);
         }
 
-        // Role → URL resolution
+        // Check role → URL authorization
         for (String role : roles) {
             List<RealmProductRoleUrl> urls = gatewayRoleService.getUrls(realm, product, role);
             if (urls == null) continue;
@@ -147,7 +152,8 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
                 if (adjustedPath.equals(url.getUri())) {
 
                     String redirectTo = url.getUrl() + url.getUri();
-                    log.info("🚀 Redirecting to downstream service: {}", redirectTo);
+                    log.info("🚀 Redirecting to: {}", redirectTo);
+
                     response.setStatusCode(HttpStatus.FOUND);
                     response.getHeaders().setLocation(URI.create(redirectTo));
                     return response.setComplete();
@@ -155,12 +161,13 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
             }
         }
 
-        log.warn("❌ Access denied for URL: {}", path);
+        log.warn("❌ Access denied to URL: {}", path);
         response.setStatusCode(HttpStatus.FORBIDDEN);
         return response.setComplete();
     }
 
     private Mono<Void> forwardRequest(ServerWebExchange exchange, String targetBaseUrl, String token) {
+
         ServerHttpRequest request = exchange.getRequest();
         ServerHttpResponse response = exchange.getResponse();
 
@@ -179,11 +186,10 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
         return bodyMono.flatMap(bodyBytes -> {
             String path = request.getURI().getPath();
             String query = request.getURI().getQuery();
-            String forwardUrl = targetBaseUrl.replaceAll("/$", "") + path +
-                    (query != null ? "?" + query : "");
+            String forwardUrl =
+                    targetBaseUrl.replaceAll("/$", "") + path + (query != null ? "?" + query : "");
 
-            log.info("➡️ [GATEWAY] Forwarding request to URL: {}", forwardUrl);
-            log.info("🔑 [GATEWAY] Forwarding Authorization header: Bearer {}", token);
+            log.info("➡️ Forwarding to {}", forwardUrl);
 
             WebClient.RequestBodySpec requestSpec = webClient.method(method)
                     .uri(forwardUrl)
@@ -197,8 +203,10 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
             return requestSpec.exchangeToMono(clientResponse -> {
                 response.setStatusCode(clientResponse.statusCode());
                 response.getHeaders().addAll(clientResponse.headers().asHttpHeaders());
+
                 return clientResponse.bodyToMono(byte[].class)
-                        .flatMap(body -> response.writeWith(Mono.just(response.bufferFactory().wrap(body))));
+                        .flatMap(body -> response.writeWith(
+                                Mono.just(response.bufferFactory().wrap(body))));
             });
         });
     }

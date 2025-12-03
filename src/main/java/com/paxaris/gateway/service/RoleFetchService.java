@@ -22,15 +22,19 @@ public class RoleFetchService {
     private final GatewayRoleService gatewayRoleService;
 
     private final ScheduledExecutorService scheduler =
-            Executors.newSingleThreadScheduledExecutor(); /* (updated line for reload) */
+            Executors.newSingleThreadScheduledExecutor();
 
     @Value("${PROJECT_MANAGEMENT_BASE_URL}")
     private String projectManagerBaseUrl;
 
+    /**
+     * Schedules role refresh 10 seconds after signup/create event
+     */
     public void fetchRolesDelayed() {
-        scheduler.schedule(() -> {  /* (updated line for reload) */
+
+        scheduler.schedule(() -> {
             try {
-                log.info("⏳ Fetching roles from Project Manager after 10s delay..."); /* (updated line for reload) */
+                log.info("⏳ [ROLE-REFRESH] Fetching roles from Project Manager after delay...");
 
                 List<RealmProductRole> roles = webClientBuilder.build()
                         .get()
@@ -41,15 +45,16 @@ public class RoleFetchService {
                         .block(Duration.ofSeconds(10));
 
                 if (roles != null && !roles.isEmpty()) {
-                    gatewayRoleService.loadRoles(roles);  /* (updated line for reload) */
-                    log.info("✅ Roles updated successfully!"); /* (updated line for reload) */
+                    gatewayRoleService.loadRoles(roles);
+                    log.info("✅ [ROLE-REFRESH] Roles updated successfully.");
                 } else {
-                    log.warn("⚠️ No roles returned from PM service"); /* (updated line for reload) */
+                    log.warn("⚠️ [ROLE-REFRESH] No roles returned from Project Manager.");
                 }
 
             } catch (Exception e) {
-                log.error("💥 Failed to fetch roles", e); /* (updated line for reload) */
+                log.error("💥 [ROLE-REFRESH] Failed to fetch roles", e);
             }
+
         }, 10, TimeUnit.SECONDS);
     }
 }

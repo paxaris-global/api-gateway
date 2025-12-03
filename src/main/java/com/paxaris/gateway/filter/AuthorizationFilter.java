@@ -2,6 +2,7 @@ package com.paxaris.gateway.filter;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.paxaris.gateway.service.GatewayRoleService;
+import com.paxaris.gateway.service.RoleFetchService;   /* (updated line for reload) */
 import dto.RealmProductRoleUrl;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -38,12 +39,12 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
     @Value("${KEYCLOAK_BASE_URL}")
     private String keycloakBaseUrl;
 
-    // UPDATED ↓
-    @Value("${PROJECT_MANAGEMENT_BASE_URL}")             // UPDATED
-    private String projectManagerBaseUrl;             // UPDATED (used by RoleFetchService)
+    @Value("${PROJECT_MANAGEMENT_BASE_URL}")
+    private String projectManagerBaseUrl;
 
     private final WebClient.Builder webClientBuilder;
     private final GatewayRoleService gatewayRoleService;
+    private final RoleFetchService roleFetchService;   /* (updated line for reload) */
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     @Override
@@ -55,8 +56,18 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
         log.info("➡️ [GATEWAY] Incoming request: {} {}", request.getMethod(), path);
         log.info("📟 [CURL] Equivalent command:\n{}", buildCurlCommand(request));
 
-        // Skip login & signup
-        if (path.contains("/login") || path.contains("/signup")) {
+        // -------------------------------------------
+        // AUTO-REFRESH ROLE CACHE WHEN SIGNUP/CREATE
+        // -------------------------------------------
+        if (path.contains("/signup") || path.contains("/create")) {  /* (updated line for reload) */
+            log.info("🟡 Signup/Create detected → scheduling 10s role reload...");  /* (updated line for reload) */
+            roleFetchService.fetchRolesDelayed();  /* (updated line for reload) */
+            return chain.filter(exchange);
+        }
+        // -------------------------------------------
+
+        // Skip login
+        if (path.contains("/login")) {
             log.info("🔓 Skipping auth for open endpoint: {}", path);
             return chain.filter(exchange);
         }
@@ -135,8 +146,7 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
             for (RealmProductRoleUrl url : urls) {
                 if (adjustedPath.equals(url.getUri())) {
 
-                    // UPDATED ↓
-                    String redirectTo = url.getUrl() + url.getUri();  // UPDATED
+                    String redirectTo = url.getUrl() + url.getUri();
                     log.info("🚀 Redirecting to downstream service: {}", redirectTo);
                     response.setStatusCode(HttpStatus.FOUND);
                     response.getHeaders().setLocation(URI.create(redirectTo));

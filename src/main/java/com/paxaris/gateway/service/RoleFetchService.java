@@ -21,18 +21,17 @@ public class RoleFetchService {
     private final WebClient.Builder webClientBuilder;
     private final GatewayRoleService gatewayRoleService;
 
-    private final ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
+    private final ScheduledExecutorService scheduler =
+            Executors.newSingleThreadScheduledExecutor(); /* (updated line for reload) */
 
     @Value("${PROJECT_MANAGEMENT_BASE_URL}")
     private String projectManagerBaseUrl;
 
-    /**
-     * Fetch roles from Project Manager after a delay (default 10s)
-     */
     public void fetchRolesDelayed() {
-        scheduler.schedule(() -> {
+        scheduler.schedule(() -> {  /* (updated line for reload) */
             try {
-                log.info("⏳ Fetching roles from Project Manager (delayed task)...");
+                log.info("⏳ Fetching roles from Project Manager after 10s delay..."); /* (updated line for reload) */
+
                 List<RealmProductRole> roles = webClientBuilder.build()
                         .get()
                         .uri(projectManagerBaseUrl + "/project/roles")
@@ -42,14 +41,15 @@ public class RoleFetchService {
                         .block(Duration.ofSeconds(10));
 
                 if (roles != null && !roles.isEmpty()) {
-                    gatewayRoleService.loadRoles(roles);
-                    log.info("✅ Roles updated in memory after delay");
+                    gatewayRoleService.loadRoles(roles);  /* (updated line for reload) */
+                    log.info("✅ Roles updated successfully!"); /* (updated line for reload) */
                 } else {
-                    log.warn("⚠️ No roles returned from Project Manager");
+                    log.warn("⚠️ No roles returned from PM service"); /* (updated line for reload) */
                 }
+
             } catch (Exception e) {
-                log.error("💥 Failed to fetch roles in delayed task", e);
+                log.error("💥 Failed to fetch roles", e); /* (updated line for reload) */
             }
-        }, 10, TimeUnit.SECONDS); // 10-second delay
+        }, 10, TimeUnit.SECONDS);
     }
 }

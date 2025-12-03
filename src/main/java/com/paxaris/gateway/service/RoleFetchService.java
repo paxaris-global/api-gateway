@@ -24,14 +24,14 @@ public class RoleFetchService {
     private final ScheduledExecutorService scheduler =
             Executors.newSingleThreadScheduledExecutor();
 
-    @Value("${PROJECT_MANAGEMENT_BASE_URL}")
+    @Value("${project.management.base-url}")
     private String projectManagerBaseUrl;
 
     /**
      * Schedules role refresh 10 seconds after signup/create event
      */
     public void fetchRolesDelayed() {
-
+        System.out.println(projectManagerBaseUrl);
         scheduler.schedule(() -> {
             try {
                 log.info("⏳ [ROLE-REFRESH] Fetching roles from Project Manager after delay...");

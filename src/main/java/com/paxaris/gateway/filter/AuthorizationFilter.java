@@ -36,12 +36,6 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
     @Value("${IDENTITY_SERVICE_URL}")
     private String identityServiceUrl;
 
-    @Value("${KEYCLOAK_BASE_URL}")
-    private String keycloakBaseUrl;
-
-    @Value("${PROJECT_MANAGEMENT_BASE_URL}")
-    private String projectManagerBaseUrl;
-
     private final WebClient.Builder webClientBuilder;
     private final GatewayRoleService gatewayRoleService;
     private final RoleFetchService roleFetchService;
@@ -119,7 +113,7 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
         // Master token → always allowed
         if ("admin-cli".equals(azp)) {
             log.info("👑 Master token detected");
-            return forwardRequest(exchange, identityServiceUrl, token);
+            return forwardRequest(exchange, token);
         }
 
         // Block admin paths for normal users
@@ -129,28 +123,43 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
             return response.setComplete();
         }
 
-        // Remove "/identity" for URL matching
-        String adjustedPath = path.replaceFirst("/identity", "");
+        // -------------------------------
+        // CHECK ROLE IN URL (e.g., /role355)
+        // -------------------------------
+        String[] pathParts = path.split("/");
+        if (pathParts.length > 1 && pathParts[1].startsWith("role")) {
+            String roleFromUrl = pathParts[1]; // "role355"
+            if (!roles.contains(roleFromUrl)) {
+                log.warn("❌ Token does NOT contain role required for URL: {}", roleFromUrl);
+                response.setStatusCode(HttpStatus.FORBIDDEN);
+                return response.setComplete();
+            } else {
+                log.info("✅ Token contains role required for URL: {}", roleFromUrl);
+            }
+        }
 
+        // -------------------------------
+        // SYSTEM ROLES → skip URL check
+        // -------------------------------
         List<String> systemRoles = List.of(
                 "admin", "manage-users", "manage-realm", "create-client",
                 "impersonation", "manage-account", "view-profile"
         );
 
-        // System roles skip check
         if (roles.stream().anyMatch(systemRoles::contains)) {
-            log.info("👑 System role detected → forwarding");
-            return forwardRequest(exchange, identityServiceUrl, token);
+            log.info("👑 System role detected → forwarding request");
+            return forwardRequest(exchange, token);
         }
 
-        // Check role → URL authorization
+        // -------------------------------
+        // URL REDIRECTION BASED ON ROLE CONFIG
+        // -------------------------------
+        String adjustedPath = path.replaceFirst("/identity", "");
         for (String role : roles) {
             List<RealmProductRoleUrl> urls = gatewayRoleService.getUrls(realm, product, role);
             if (urls == null) continue;
-
             for (RealmProductRoleUrl url : urls) {
                 if (adjustedPath.equals(url.getUri())) {
-
                     String redirectTo = url.getUrl() + url.getUri();
                     log.info("🚀 Redirecting to: {}", redirectTo);
 
@@ -166,11 +175,10 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
         return response.setComplete();
     }
 
-    private Mono<Void> forwardRequest(ServerWebExchange exchange, String targetBaseUrl, String token) {
+    private Mono<Void> forwardRequest(ServerWebExchange exchange, String token) {
 
         ServerHttpRequest request = exchange.getRequest();
         ServerHttpResponse response = exchange.getResponse();
-
         WebClient webClient = webClientBuilder.build();
         HttpMethod method = request.getMethod();
 
@@ -186,8 +194,7 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
         return bodyMono.flatMap(bodyBytes -> {
             String path = request.getURI().getPath();
             String query = request.getURI().getQuery();
-            String forwardUrl =
-                    targetBaseUrl.replaceAll("/$", "") + path + (query != null ? "?" + query : "");
+            String forwardUrl = path + (query != null ? "?" + query : "");
 
             log.info("➡️ Forwarding to {}", forwardUrl);
 

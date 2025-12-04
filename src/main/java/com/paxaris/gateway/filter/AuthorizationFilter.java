@@ -53,13 +53,23 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
         log.info("📟 [CURL] Command:\n{}", buildCurlCommand(request));
 
         // --------------------------------------------------
-        //  AUTO-REFRESH ROLES ON SIGNUP / CREATE
-        // --------------------------------------------------
-        if (path.contains("/signup") || path.contains("/create")) {
-            log.info("🟡 Signup/Create detected → scheduling role refresh in 10 seconds...");
-            roleFetchService.fetchRolesDelayed();
-            return chain.filter(exchange);
+//  AUTO-REFRESH ROLES ON SIGNUP / USER / CLIENT / ROLE CHANGES
+// --------------------------------------------------
+        if (exchange.getRequest().getMethod() == HttpMethod.POST ||
+                exchange.getRequest().getMethod() == HttpMethod.PUT ||
+                exchange.getRequest().getMethod() == HttpMethod.DELETE) {
+
+            if (path.contains("/signup") ||     // realm + admin + client creation
+                    path.contains("/users") ||      // user create + assign user roles
+                    path.contains("/clients") ||    // client created
+                    path.contains("/roles")) {      // role create + assign roles
+
+                log.info("🟡 Detected create/update/assign → scheduling role refresh in 10 seconds...");
+                roleFetchService.fetchRolesDelayed();
+                return chain.filter(exchange);
+            }
         }
+
         // --------------------------------------------------
 
         // Skip login

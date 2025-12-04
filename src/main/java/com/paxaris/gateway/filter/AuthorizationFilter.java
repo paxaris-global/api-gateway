@@ -165,7 +165,7 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
         // -------------------------------
         // URL REDIRECTION BASED ON ROLE CONFIG
         // -------------------------------
-        String adjustedPath = path.replaceFirst("/identity", "");
+        String adjustedPath = path.replaceFirst("", "");
         for (String role : roles) {
             List<RealmProductRoleUrl> urls = gatewayRoleService.getUrls(realm, product, role);
             if (urls == null) continue;

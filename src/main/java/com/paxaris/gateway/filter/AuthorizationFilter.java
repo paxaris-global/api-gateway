@@ -74,7 +74,7 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
         // --------------------------------------------------
 
         // Skip login
-        if (path.contains("/login")) {
+        if (path.contains("/login") || path.contains("/signup")) {
             log.info("🔓 Skipping auth for login: {}", path);
             return chain.filter(exchange);
         }

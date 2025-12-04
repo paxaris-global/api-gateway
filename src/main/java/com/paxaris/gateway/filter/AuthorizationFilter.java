@@ -59,16 +59,17 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
                 exchange.getRequest().getMethod() == HttpMethod.PUT ||
                 exchange.getRequest().getMethod() == HttpMethod.DELETE) {
 
-            if (path.contains("/signup") ||     // realm + admin + client creation
-                    path.contains("/users") ||      // user create + assign user roles
-                    path.contains("/clients") ||    // client created
-                    path.contains("/roles")) {      // role create + assign roles
+            if (path.contains("/signup") ||
+                    path.contains("/users") ||
+                    path.contains("/clients") ||
+                    path.contains("/roles")) {
 
                 log.info("🟡 Detected create/update/assign → scheduling role refresh in 10 seconds...");
                 roleFetchService.fetchRolesDelayed();
-                return chain.filter(exchange);
+                // ❗ DO NOT RETURN — continue to token validation + forward
             }
         }
+
 
         // --------------------------------------------------
 

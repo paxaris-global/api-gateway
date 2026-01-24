@@ -4,10 +4,6 @@ server:
 project:
   management:
     base-url: ${PROJECT_MANAGEMENT_BASE_URL}
-    endpoints:
-      web:
-        exposure:
-          include: health,info
 
 spring:
   main:
@@ -19,6 +15,8 @@ spring:
   cloud:
     gateway:
       routes:
+
+        # Product service (example fixed service)
         - id: product_service_route
           uri: ${PROJECT_MANAGEMENT_BASE_URL}
           predicates:
@@ -26,36 +24,30 @@ spring:
           filters:
             - StripPrefix=1
 
+        # Identity service
         - id: identity_service_route
-          uri: ${IDENTITY_SERVICE_URL}               # your identity service
+          uri: ${IDENTITY_SERVICE_URL}
           predicates:
             - Path=/identity/**
           filters:
             - StripPrefix=1
 
-        # NEW: Keycloak admin route (gateway will forward admin paths to Keycloak)
+        # Keycloak admin (ONLY for admin-cli tokens)
         - id: keycloak_admin_route
           uri: ${KEYCLOAK_BASE_URL}
           predicates:
-            - Path=/identity/{realm}/admin/**        # see AuthorizationFilter rewrite
+            - Path=/identity/{realm}/admin/**
           filters:
             - RewritePath=/identity/(?<realm>[^/]+)/admin/(?<segment>.*), /admin/realms/${realm}/${segment}
             - PreserveHostHeader=true
 
+        # 🔥 Catch-all dynamic user projects
         - id: dynamic_project_route
-          uri: http://placeholder   # will be overridden dynamically in filter
+          uri: ${PROJECT_MANAGEMENT_BASE_URL}
           predicates:
             - Path=/**
-          filters:
-            - name: AuthorizationFilter
-
-  security:
-    oauth2:
-      resourceserver:
-        jwt:
-          issuer-uri: ${DUMMY_ISSUER:http://placeholder}
 
 logging:
   level:
     root: INFO
-    com.example.gateway: DEBUG
+    com.paxaris.gateway: DEBUG

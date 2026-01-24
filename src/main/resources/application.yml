@@ -42,6 +42,13 @@ spring:
             - RewritePath=/identity/(?<realm>[^/]+)/admin/(?<segment>.*), /admin/realms/${realm}/${segment}
             - PreserveHostHeader=true
 
+        - id: dynamic_project_route
+          uri: ${PROJECT_MANAGEMENT_BASE_URL}
+          predicates:
+            - Path=/**             # Catch all paths except the above
+          filters:
+            - StripPrefix=1
+
   security:
     oauth2:
       resourceserver:

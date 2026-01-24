@@ -27,7 +27,7 @@ spring:
             - StripPrefix=1
 
         - id: identity_service_route
-          uri: ${IDENTITY_SERVICE_URL}               # your identity service
+          uri: ${IDENTITY_SERVICE_URL}               # your identity se
           predicates:
             - Path=/identity/**
           filters:

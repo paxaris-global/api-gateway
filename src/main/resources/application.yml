@@ -27,7 +27,7 @@ spring:
             - StripPrefix=1
 
         - id: identity_service_route
-          uri: ${IDENTITY_SERVICE_URL}               # your identity se
+          uri: ${IDENTITY_SERVICE_URL}               # your identity service
           predicates:
             - Path=/identity/**
           filters:
@@ -43,11 +43,11 @@ spring:
             - PreserveHostHeader=true
 
         - id: dynamic_project_route
-          uri: ${PROJECT_MANAGEMENT_BASE_URL}
+          uri: http://placeholder   # will be overridden dynamically in filter
           predicates:
-            - Path=/**             # Catch all paths except the above
+            - Path=/**
           filters:
-            - StripPrefix=1
+            - name: AuthorizationFilter
 
   security:
     oauth2:

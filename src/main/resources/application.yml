@@ -14,39 +14,37 @@ spring:
 
   cloud:
     gateway:
-      server:
-        webflux:
-          routes:
-            # Product service (example fixed service)
-            - id: product_service_route
-              uri: ${PROJECT_MANAGEMENT_BASE_URL}
-              predicates:
-                - Path=/product/**
-              filters:
-                - StripPrefix=1
+      routes: # <-- REMOVED the dash here
+        # Product service
+        - id: product_service_route
+          uri: ${PROJECT_MANAGEMENT_BASE_URL}
+          predicates:
+            - Path=/product/**
+          filters:
+            - StripPrefix=1
 
-            # Identity service
-            - id: identity_service_route
-              uri: ${IDENTITY_SERVICE_URL}
-              predicates:
-                - Path=/identity/**
-              filters:
-                - StripPrefix=1
+        # Identity service
+        - id: identity_service_route
+          uri: ${IDENTITY_SERVICE_URL}
+          predicates:
+            - Path=/identity/**
+          filters:
+            - StripPrefix=1
 
-            # Keycloak admin (ONLY for admin-cli tokens)
-            - id: keycloak_admin_route
-              uri: ${KEYCLOAK_BASE_URL}
-              predicates:
-                - Path=/identity/{realm}/admin/**
-              filters:
-                - RewritePath=/identity/(?<realm>[^/]+)/admin/(?<segment>.*), /admin/realms/${realm}/${segment}
-                - PreserveHostHeader=true
+        # Keycloak admin
+        - id: keycloak_admin_route
+          uri: ${KEYCLOAK_BASE_URL}
+          predicates:
+            - Path=/identity/{realm}/admin/**
+          filters:
+            - RewritePath=/identity/(?<realm>[^/]+)/admin/(?<segment>.*), /admin/realms/${realm}/${segment}
+            - PreserveHostHeader=true
 
-            # 🔥 Catch-all dynamic user projects (MUST BE LAST)
-            - id: dynamic_project_route
-              uri: ${PROJECT_MANAGEMENT_BASE_URL}
-              predicates:
-                - Path=/**
+        # 🔥 Catch-all dynamic user projects (MUST BE LAST)
+        - id: dynamic_project_route
+          uri: ${PROJECT_MANAGEMENT_BASE_URL}
+          predicates:
+            - Path=/**
 
 logging:
   level:

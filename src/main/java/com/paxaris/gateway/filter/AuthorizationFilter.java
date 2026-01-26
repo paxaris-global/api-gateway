@@ -21,6 +21,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.server.ServerWebExchange;
 import org.springframework.core.io.buffer.DataBufferUtils;
+import org.springframework.core.io.buffer.DataBuffer;
 import reactor.core.publisher.Mono;
 
 import java.net.URI;
@@ -52,30 +53,23 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
         log.info("➡️ [GATEWAY] Incoming request: {} {}", request.getMethod(), path);
         log.info("📟 [CURL] Command:\n{}", buildCurlCommand(request));
 
-        // --------------------------------------------------
-//  AUTO-REFRESH ROLES ON SIGNUP / USER / CLIENT / ROLE CHANGES
-// --------------------------------------------------
-        if (exchange.getRequest().getMethod() == HttpMethod.POST ||
-                exchange.getRequest().getMethod() == HttpMethod.PUT ||
-                exchange.getRequest().getMethod() == HttpMethod.DELETE) {
+        // Auto-refresh roles on signup/users/clients/roles POST, PUT, DELETE
+        if (request.getMethod() == HttpMethod.POST ||
+            request.getMethod() == HttpMethod.PUT ||
+            request.getMethod() == HttpMethod.DELETE) {
 
-            if (path.contains("/signup") ||
-                    path.contains("/users") ||
-                    path.contains("/clients") ||
-                    path.contains("/roles")) {
+            if (path.contains("/signup") || path.contains("/users") || 
+                path.contains("/clients") || path.contains("/roles")) {
 
                 log.info("🟡 Detected create/update/assign → scheduling role refresh in 10 seconds...");
                 roleFetchService.fetchRolesDelayed();
-                // ❗ DO NOT RETURN — continue to token validation + forward
+                // Continue processing
             }
         }
 
-
-        // --------------------------------------------------
-
-        // Skip login
+        // Skip auth for login/signup paths
         if (path.contains("/login") || path.contains("/signup")) {
-            log.info("🔓 Skipping auth for login: {}", path);
+            log.info("🔓 Skipping auth for login/signup: {}", path);
             return chain.filter(exchange);
         }
 
@@ -127,15 +121,11 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
             return forwardRequest(exchange, token);
         }
 
-        // Block admin paths for normal users
-        // --------------------------------------------------
-// KEYCLOAK ADMIN API — ALLOW
-// --------------------------------------------------
+        // Check Keycloak Admin API access
         boolean isKeycloakAdminApi =
                 path.matches("^/identity/[^/]+/(users|clients|roles|groups|components|identity-provider).*");
 
         if (isKeycloakAdminApi) {
-
             if (roles.contains("admin")
                     || roles.contains("manage-users")
                     || roles.contains("manage-clients")
@@ -150,14 +140,10 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
             return response.setComplete();
         }
 
-
-
-        // -------------------------------
-        // CHECK ROLE IN URL (e.g., /role355)
-        // -------------------------------
+        // Check role in URL like /role355
         String[] pathParts = path.split("/");
         if (pathParts.length > 1 && pathParts[1].startsWith("role")) {
-            String roleFromUrl = pathParts[1]; // "role355"
+            String roleFromUrl = pathParts[1];
             if (!roles.contains(roleFromUrl)) {
                 log.warn("❌ Token does NOT contain role required for URL: {}", roleFromUrl);
                 response.setStatusCode(HttpStatus.FORBIDDEN);
@@ -167,9 +153,7 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
             }
         }
 
-        // -------------------------------
-        // SYSTEM ROLES → skip URL check
-        // -------------------------------
+        // System roles - skip URL check
         List<String> systemRoles = List.of(
                 "admin", "manage-users", "manage-realm", "create-client",
                 "impersonation", "manage-account", "view-profile"
@@ -180,9 +164,7 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
             return forwardRequest(exchange, token);
         }
 
-        // -------------------------------
-        // URL REDIRECTION BASED ON ROLE CONFIG
-        // -------------------------------
+        // URL redirection based on role config
         String adjustedPath = path.replaceFirst("", "");
         for (String role : roles) {
             List<RealmProductRoleUrl> urls = gatewayRoleService.getUrls(realm, product, role);
@@ -211,40 +193,42 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
         WebClient webClient = webClientBuilder.build();
         HttpMethod method = request.getMethod();
 
-        Mono<byte[]> bodyMono = DataBufferUtils.join(request.getBody())
-                .map(dataBuffer -> {
+        return DataBufferUtils.join(request.getBody())
+                .defaultIfEmpty(exchange.getResponse().bufferFactory().wrap(new byte[0]))
+                .flatMap(dataBuffer -> {
                     byte[] bytes = new byte[dataBuffer.readableByteCount()];
                     dataBuffer.read(bytes);
                     DataBufferUtils.release(dataBuffer);
-                    return bytes;
-                })
-                .defaultIfEmpty(new byte[0]);
 
-        return bodyMono.flatMap(bodyBytes -> {
-            String path = request.getURI().getPath();
-            String query = request.getURI().getQuery();
-            String forwardUrl = path + (query != null ? "?" + query : "");
+                    String path = request.getURI().getPath();
+                    String query = request.getURI().getQuery();
+                    String forwardUrl = path + (query != null ? "?" + query : "");
 
-            log.info("➡️ Forwarding to {}", forwardUrl);
+                    log.info("➡️ Forwarding to {}", forwardUrl);
 
-            WebClient.RequestBodySpec requestSpec = webClient.method(method)
-                    .uri(forwardUrl)
-                    .header(HttpHeaders.AUTHORIZATION, "Bearer " + token);
+                    WebClient.RequestBodySpec requestSpec = webClient.method(method)
+                            .uri(forwardUrl)
+                            .header(HttpHeaders.AUTHORIZATION, "Bearer " + token);
 
-            if (method == HttpMethod.POST || method == HttpMethod.PUT) {
-                requestSpec.contentType(MediaType.APPLICATION_JSON)
-                        .bodyValue(bodyBytes);
-            }
+                    if (method == HttpMethod.POST || method == HttpMethod.PUT) {
+                        // convert body bytes to String for JSON content
+                        String bodyString = new String(bytes, StandardCharsets.UTF_8);
 
-            return requestSpec.exchangeToMono(clientResponse -> {
-                response.setStatusCode(clientResponse.statusCode());
-                response.getHeaders().addAll(clientResponse.headers().asHttpHeaders());
+                        requestSpec.contentType(MediaType.APPLICATION_JSON)
+                                .bodyValue(bodyString);
+                    }
 
-                return clientResponse.bodyToMono(byte[].class)
-                        .flatMap(body -> response.writeWith(
-                                Mono.just(response.bufferFactory().wrap(body))));
-            });
-        });
+                    return requestSpec.exchangeToMono(clientResponse -> {
+                        response.setStatusCode(clientResponse.statusCode());
+                        response.getHeaders().clear();
+                        response.getHeaders().addAll(clientResponse.headers().asHttpHeaders());
+
+                        return clientResponse.bodyToMono(byte[].class)
+                                .flatMap(body -> response.writeWith(
+                                        Mono.just(response.bufferFactory().wrap(body))
+                                ));
+                    });
+                });
     }
 
     private String buildCurlCommand(ServerHttpRequest request) {

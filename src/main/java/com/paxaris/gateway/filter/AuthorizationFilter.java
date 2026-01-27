@@ -21,7 +21,6 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.server.ServerWebExchange;
 import org.springframework.core.io.buffer.DataBufferUtils;
-import org.springframework.core.io.buffer.DataBuffer;
 import reactor.core.publisher.Mono;
 
 import java.net.URI;
@@ -53,21 +52,23 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
         log.info("➡️ [GATEWAY] Incoming request: {} {}", request.getMethod(), path);
         log.info("📟 [CURL] Command:\n{}", buildCurlCommand(request));
 
-        // Auto-refresh roles on signup/users/clients/roles POST, PUT, DELETE
+        // Auto-refresh roles on create/update/assign
         if (request.getMethod() == HttpMethod.POST ||
             request.getMethod() == HttpMethod.PUT ||
             request.getMethod() == HttpMethod.DELETE) {
 
-            if (path.contains("/signup") || path.contains("/users") || 
-                path.contains("/clients") || path.contains("/roles")) {
+            if (path.contains("/signup") ||
+                path.contains("/users") ||
+                path.contains("/clients") ||
+                path.contains("/roles")) {
 
                 log.info("🟡 Detected create/update/assign → scheduling role refresh in 10 seconds...");
                 roleFetchService.fetchRolesDelayed();
-                // Continue processing
+                // continue with auth + forwarding
             }
         }
 
-        // Skip auth for login/signup paths
+        // Skip login and signup endpoints
         if (path.contains("/login") || path.contains("/signup")) {
             log.info("🔓 Skipping auth for login/signup: {}", path);
             return chain.filter(exchange);
@@ -76,7 +77,7 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
         String authHeader = request.getHeaders().getFirst(HttpHeaders.AUTHORIZATION);
 
         if (authHeader == null || !authHeader.startsWith("Bearer ")) {
-            log.warn("❌ Missing Authorization header");
+            log.warn("❌ Missing or invalid Authorization header");
             response.setStatusCode(HttpStatus.UNAUTHORIZED);
             return response.setComplete();
         }
@@ -121,26 +122,22 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
             return forwardRequest(exchange, token);
         }
 
-        // Check Keycloak Admin API access
-        boolean isKeycloakAdminApi =
-                path.matches("^/identity/[^/]+/(users|clients|roles|groups|components|identity-provider).*");
+        // Keycloak Admin API allowed roles
+        boolean isKeycloakAdminApi = path.matches("^/identity/[^/]+/(users|clients|roles|groups|components|identity-provider).*");
 
         if (isKeycloakAdminApi) {
-            if (roles.contains("admin")
-                    || roles.contains("manage-users")
-                    || roles.contains("manage-clients")
-                    || roles.contains("manage-realm")) {
+            if (roles.contains("admin") || roles.contains("manage-users") ||
+                roles.contains("manage-clients") || roles.contains("manage-realm")) {
 
                 log.info("✅ Keycloak Admin API allowed");
                 return forwardRequest(exchange, token);
             }
-
             log.warn("❌ Keycloak Admin API denied — insufficient roles");
             response.setStatusCode(HttpStatus.FORBIDDEN);
             return response.setComplete();
         }
 
-        // Check role in URL like /role355
+        // Check role in URL path like /role355
         String[] pathParts = path.split("/");
         if (pathParts.length > 1 && pathParts[1].startsWith("role")) {
             String roleFromUrl = pathParts[1];
@@ -153,7 +150,7 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
             }
         }
 
-        // System roles - skip URL check
+        // System roles skip URL check
         List<String> systemRoles = List.of(
                 "admin", "manage-users", "manage-realm", "create-client",
                 "impersonation", "manage-account", "view-profile"
@@ -188,60 +185,50 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
 
     private Mono<Void> forwardRequest(ServerWebExchange exchange, String token) {
 
-    ServerHttpRequest request = exchange.getRequest();
-    ServerHttpResponse response = exchange.getResponse();
-    WebClient webClient = webClientBuilder.build();
-    HttpMethod method = request.getMethod();
+        ServerHttpRequest request = exchange.getRequest();
+        ServerHttpResponse response = exchange.getResponse();
 
-    return DataBufferUtils.join(request.getBody())
-            .defaultIfEmpty(exchange.getResponse().bufferFactory().wrap(new byte[0]))
-            .flatMap(dataBuffer -> {
+        // Build WebClient with base URL of identity service
+        WebClient webClient = webClientBuilder.baseUrl(identityServiceUrl).build();
+        HttpMethod method = request.getMethod();
 
-                byte[] bodyBytes = new byte[dataBuffer.readableByteCount()];
-                dataBuffer.read(bodyBytes);
-                DataBufferUtils.release(dataBuffer);
+        Mono<byte[]> bodyMono = DataBufferUtils.join(request.getBody())
+                .map(dataBuffer -> {
+                    byte[] bytes = new byte[dataBuffer.readableByteCount()];
+                    dataBuffer.read(bytes);
+                    DataBufferUtils.release(dataBuffer);
+                    return bytes;
+                })
+                .defaultIfEmpty(new byte[0]);
 
-                String path = request.getURI().getPath();
-                String query = request.getURI().getQuery();
-                String forwardUrl = path + (query != null ? "?" + query : "");
+        return bodyMono.flatMap(bodyBytes -> {
+            String path = request.getURI().getPath();
+            String query = request.getURI().getQuery();
+            String forwardUrl = path + (query != null ? "?" + query : "");
 
-                log.info("➡️ Forwarding {} to {}", method, forwardUrl);
+            log.info("➡️ Forwarding to {}", forwardUrl);
 
-                WebClient.RequestBodySpec spec = webClient
-                        .method(method)
-                        .uri(forwardUrl)
-                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token);
+            WebClient.RequestBodySpec requestSpec = webClient.method(method)
+                    .uri(forwardUrl)
+                    .header(HttpHeaders.AUTHORIZATION, "Bearer " + token);
 
-                // ❗ DO NOT copy Content-Length / Transfer-Encoding
-                request.getHeaders().forEach((key, values) -> {
-                    if (!key.equalsIgnoreCase(HttpHeaders.CONTENT_LENGTH)
-                            && !key.equalsIgnoreCase(HttpHeaders.TRANSFER_ENCODING)
-                            && !key.equalsIgnoreCase(HttpHeaders.HOST)
-                            && !key.equalsIgnoreCase(HttpHeaders.AUTHORIZATION)) {
-                        values.forEach(v -> spec.header(key, v));
-                    }
-                });
+            if (method == HttpMethod.POST || method == HttpMethod.PUT) {
+                // Convert body bytes to UTF-8 String assuming JSON
+                String bodyString = new String(bodyBytes, StandardCharsets.UTF_8);
+                requestSpec.contentType(MediaType.APPLICATION_JSON)
+                        .bodyValue(bodyString);
+            }
 
-                if (method == HttpMethod.POST || method == HttpMethod.PUT) {
-                    spec.contentType(MediaType.APPLICATION_JSON)
-                        .bodyValue(bodyBytes);
-                }
+            return requestSpec.exchangeToMono(clientResponse -> {
+                response.setStatusCode(clientResponse.statusCode());
+                response.getHeaders().addAll(clientResponse.headers().asHttpHeaders());
 
-                return spec.exchangeToMono(clientResponse -> {
-                    response.setStatusCode(clientResponse.statusCode());
-
-                    clientResponse.headers().asHttpHeaders().forEach((key, values) -> {
-                        if (!key.equalsIgnoreCase(HttpHeaders.TRANSFER_ENCODING)) {
-                            response.getHeaders().addAll(key, values);
-                        }
-                    });
-
-                    return response.writeWith(
-                            clientResponse.bodyToFlux(DataBuffer.class)
-                    );
-                });
+                return clientResponse.bodyToMono(byte[].class)
+                        .flatMap(body -> response.writeWith(
+                                Mono.just(response.bufferFactory().wrap(body))));
             });
-}
+        });
+    }
 
     private String buildCurlCommand(ServerHttpRequest request) {
         StringBuilder curl = new StringBuilder("curl -X ")

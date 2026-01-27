@@ -183,52 +183,50 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
         return response.setComplete();
     }
 
-    private Mono<Void> forwardRequest(ServerWebExchange exchange, String token) {
+   private Mono<Void> forwardRequest(ServerWebExchange exchange, String token) {
 
-        ServerHttpRequest request = exchange.getRequest();
-        ServerHttpResponse response = exchange.getResponse();
+    ServerHttpRequest request = exchange.getRequest();
+    ServerHttpResponse response = exchange.getResponse();
 
-        // Build WebClient with base URL of identity service
-        WebClient webClient = webClientBuilder.baseUrl(identityServiceUrl).build();
-        HttpMethod method = request.getMethod();
+    WebClient webClient = webClientBuilder.baseUrl(identityServiceUrl).build();
+    HttpMethod method = request.getMethod();
 
-        Mono<byte[]> bodyMono = DataBufferUtils.join(request.getBody())
-                .map(dataBuffer -> {
-                    byte[] bytes = new byte[dataBuffer.readableByteCount()];
-                    dataBuffer.read(bytes);
-                    DataBufferUtils.release(dataBuffer);
-                    return bytes;
-                })
-                .defaultIfEmpty(new byte[0]);
+    Mono<byte[]> bodyMono = DataBufferUtils.join(request.getBody())
+            .map(dataBuffer -> {
+                byte[] bytes = new byte[dataBuffer.readableByteCount()];
+                dataBuffer.read(bytes);
+                DataBufferUtils.release(dataBuffer);
+                return bytes;
+            })
+            .defaultIfEmpty(new byte[0]);
 
-        return bodyMono.flatMap(bodyBytes -> {
-            String path = request.getURI().getPath();
-            String query = request.getURI().getQuery();
-            String forwardUrl = path + (query != null ? "?" + query : "");
+    return bodyMono.flatMap(bodyBytes -> {
+        String path = request.getURI().getPath();
+        String query = request.getURI().getQuery();
+        String forwardUrl = path + (query != null ? "?" + query : "");
 
-            log.info("➡️ Forwarding to {}", forwardUrl);
+        log.info("➡️ Forwarding to {}", forwardUrl);
 
-            WebClient.RequestBodySpec requestSpec = webClient.method(method)
-                    .uri(forwardUrl)
-                    .header(HttpHeaders.AUTHORIZATION, "Bearer " + token);
+        WebClient.RequestBodySpec requestSpec = webClient.method(method)
+                .uri(forwardUrl)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + token);
 
-            if (method == HttpMethod.POST || method == HttpMethod.PUT) {
-                // Convert body bytes to UTF-8 String assuming JSON
-                String bodyString = new String(bodyBytes, StandardCharsets.UTF_8);
-                requestSpec.contentType(MediaType.APPLICATION_JSON)
-                        .bodyValue(bodyString);
-            }
+        if (method == HttpMethod.POST || method == HttpMethod.PUT) {
+            String bodyString = new String(bodyBytes, StandardCharsets.UTF_8);
+            requestSpec = requestSpec.contentType(MediaType.APPLICATION_JSON)
+                                     .bodyValue(bodyString);
+        }
 
-            return requestSpec.exchangeToMono(clientResponse -> {
-                response.setStatusCode(clientResponse.statusCode());
-                response.getHeaders().addAll(clientResponse.headers().asHttpHeaders());
+        return requestSpec.exchangeToMono(clientResponse -> {
+            response.setStatusCode(clientResponse.statusCode());
+            response.getHeaders().addAll(clientResponse.headers().asHttpHeaders());
 
-                return clientResponse.bodyToMono(byte[].class)
-                        .flatMap(body -> response.writeWith(
-                                Mono.just(response.bufferFactory().wrap(body))));
-            });
+            return clientResponse.bodyToMono(byte[].class)
+                    .flatMap(body -> response.writeWith(
+                            Mono.just(response.bufferFactory().wrap(body))));
         });
-    }
+    });
+}
 
     private String buildCurlCommand(ServerHttpRequest request) {
         StringBuilder curl = new StringBuilder("curl -X ")

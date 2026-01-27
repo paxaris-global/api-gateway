@@ -54,13 +54,13 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
 
         // Auto-refresh roles on create/update/assign
         if (request.getMethod() == HttpMethod.POST ||
-            request.getMethod() == HttpMethod.PUT ||
-            request.getMethod() == HttpMethod.DELETE) {
+                request.getMethod() == HttpMethod.PUT ||
+                request.getMethod() == HttpMethod.DELETE) {
 
             if (path.contains("/signup") ||
-                path.contains("/users") ||
-                path.contains("/clients") ||
-                path.contains("/roles")) {
+                    path.contains("/users") ||
+                    path.contains("/clients") ||
+                    path.contains("/roles")) {
 
                 log.info("🟡 Detected create/update/assign → scheduling role refresh in 10 seconds...");
                 roleFetchService.fetchRolesDelayed();
@@ -127,7 +127,7 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
 
         if (isKeycloakAdminApi) {
             if (roles.contains("admin") || roles.contains("manage-users") ||
-                roles.contains("manage-clients") || roles.contains("manage-realm")) {
+                    roles.contains("manage-clients") || roles.contains("manage-realm")) {
 
                 log.info("✅ Keycloak Admin API allowed");
                 return forwardRequest(exchange, token);
@@ -183,50 +183,60 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
         return response.setComplete();
     }
 
-   private Mono<Void> forwardRequest(ServerWebExchange exchange, String token) {
+    private Mono<Void> forwardRequest(ServerWebExchange exchange, String token) {
 
-    ServerHttpRequest request = exchange.getRequest();
-    ServerHttpResponse response = exchange.getResponse();
+        ServerHttpRequest request = exchange.getRequest();
+        ServerHttpResponse response = exchange.getResponse();
 
-    WebClient webClient = webClientBuilder.baseUrl(identityServiceUrl).build();
-    HttpMethod method = request.getMethod();
+        WebClient webClient = webClientBuilder.baseUrl(identityServiceUrl).build();
+        HttpMethod method = request.getMethod();
 
-    Mono<byte[]> bodyMono = DataBufferUtils.join(request.getBody())
-            .map(dataBuffer -> {
-                byte[] bytes = new byte[dataBuffer.readableByteCount()];
-                dataBuffer.read(bytes);
-                DataBufferUtils.release(dataBuffer);
-                return bytes;
-            })
-            .defaultIfEmpty(new byte[0]);
+        Mono<byte[]> bodyMono = DataBufferUtils.join(request.getBody())
+                .map(dataBuffer -> {
+                    byte[] bytes = new byte[dataBuffer.readableByteCount()];
+                    dataBuffer.read(bytes);
+                    DataBufferUtils.release(dataBuffer);
+                    return bytes;
+                })
+                .defaultIfEmpty(new byte[0]);
 
-    return bodyMono.flatMap(bodyBytes -> {
-        String path = request.getURI().getPath();
-        String query = request.getURI().getQuery();
-        String forwardUrl = path + (query != null ? "?" + query : "");
+        return bodyMono.flatMap(bodyBytes -> {
+            String path = request.getURI().getPath();
+            String query = request.getURI().getQuery();
+            String forwardUrl = path + (query != null ? "?" + query : "");
 
-        log.info("➡️ Forwarding to {}", forwardUrl);
+            log.info("➡️ Forwarding to {}", forwardUrl);
 
-        WebClient.RequestBodySpec requestSpec = webClient.method(method)
-                .uri(forwardUrl)
-                .header(HttpHeaders.AUTHORIZATION, "Bearer " + token);
+            WebClient.RequestBodySpec requestSpec = webClient.method(method)
+                    .uri(forwardUrl)
+                    .header(HttpHeaders.AUTHORIZATION, "Bearer " + token);
 
-        if (method == HttpMethod.POST || method == HttpMethod.PUT) {
-            String bodyString = new String(bodyBytes, StandardCharsets.UTF_8);
-            requestSpec = requestSpec.contentType(MediaType.APPLICATION_JSON)
-                                     .bodyValue(bodyString);
-        }
+            if (method == HttpMethod.POST || method == HttpMethod.PUT) {
+                String bodyString = new String(bodyBytes, StandardCharsets.UTF_8);
+                // For POST/PUT, build the request with body and execute here
+                return requestSpec.contentType(MediaType.APPLICATION_JSON)
+                        .bodyValue(bodyString)
+                        .exchangeToMono(clientResponse -> {
+                            response.setStatusCode(clientResponse.statusCode());
+                            response.getHeaders().addAll(clientResponse.headers().asHttpHeaders());
 
-        return requestSpec.exchangeToMono(clientResponse -> {
-            response.setStatusCode(clientResponse.statusCode());
-            response.getHeaders().addAll(clientResponse.headers().asHttpHeaders());
+                            return clientResponse.bodyToMono(byte[].class)
+                                    .flatMap(body -> response.writeWith(
+                                            Mono.just(response.bufferFactory().wrap(body))));
+                        });
+            } else {
+                // For GET, DELETE etc, no body to send
+                return requestSpec.exchangeToMono(clientResponse -> {
+                    response.setStatusCode(clientResponse.statusCode());
+                    response.getHeaders().addAll(clientResponse.headers().asHttpHeaders());
 
-            return clientResponse.bodyToMono(byte[].class)
-                    .flatMap(body -> response.writeWith(
-                            Mono.just(response.bufferFactory().wrap(body))));
+                    return clientResponse.bodyToMono(byte[].class)
+                            .flatMap(body -> response.writeWith(
+                                    Mono.just(response.bufferFactory().wrap(body))));
+                });
+            }
         });
-    });
-}
+    }
 
     private String buildCurlCommand(ServerHttpRequest request) {
         StringBuilder curl = new StringBuilder("curl -X ")

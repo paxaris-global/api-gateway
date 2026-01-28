@@ -10,13 +10,13 @@ import org.springframework.cloud.gateway.filter.GlobalFilter;
 import org.springframework.cloud.gateway.filter.GatewayFilterChain;
 import org.springframework.core.Ordered;
 import org.springframework.core.ParameterizedTypeReference;
+import org.springframework.core.io.buffer.DataBufferUtils;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.server.reactive.ServerHttpRequest;
 import org.springframework.http.server.reactive.ServerHttpResponse;
 import org.springframework.stereotype.Component;
-import org.springframework.web.reactive.function.BodyInserters;
 import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.server.ServerWebExchange;
 import reactor.core.publisher.Mono;
@@ -55,15 +55,15 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
 
         log.info("➡️ [GATEWAY] {} {}", request.getMethod(), path);
 
-        // Refresh roles cache if POST/PUT/DELETE on key paths
+        // Auto-refresh roles cache on key changes
         if (request.getMethod() == HttpMethod.POST ||
-            request.getMethod() == HttpMethod.PUT ||
-            request.getMethod() == HttpMethod.DELETE) {
+                request.getMethod() == HttpMethod.PUT ||
+                request.getMethod() == HttpMethod.DELETE) {
 
             if (path.contains("/signup") ||
-                path.contains("/users") ||
-                path.contains("/clients") ||
-                path.contains("/roles")) {
+                    path.contains("/users") ||
+                    path.contains("/clients") ||
+                    path.contains("/roles")) {
 
                 log.info("🟡 Role config changed → refreshing gateway roles");
                 roleFetchService.fetchRolesDelayed();
@@ -88,7 +88,8 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
                 .uri("/validate")
                 .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
                 .retrieve()
-                .bodyToMono(new ParameterizedTypeReference<Map<String, Object>>() {})
+                .bodyToMono(new ParameterizedTypeReference<Map<String, Object>>() {
+                })
                 .flatMap(result -> handleAuthorization(result, exchange, token))
                 .onErrorResume(e -> {
                     log.error("❌ Validation failed", e);
@@ -130,7 +131,7 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
 
             if (isAdmin) {
                 log.info("✅ User has admin role → forwarding to Identity Service");
-                return forwardToIdentityService(exchange, token, path);
+                return forwardRequestWithBody(exchange, token, identityServiceUrl);
             } else {
                 log.warn("⛔ User lacks admin role → access denied to identity API");
                 response.setStatusCode(HttpStatus.FORBIDDEN);
@@ -141,7 +142,7 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
         // Admin-cli token bypass
         if ("admin-cli".equals(azp)) {
             log.info("⏩ admin-cli token → forwarding to backend");
-            return forwardToBackend(exchange, token, path);
+            return forwardRequestWithBody(exchange, token, identityServiceUrl);
         }
 
         // DB-driven role based URI authorization
@@ -166,43 +167,42 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
         return response.setComplete();
     }
 
-    private Mono<Void> forwardToIdentityService(ServerWebExchange exchange, String token, String path) {
+    /**
+     * Helper to forward request (with body and headers) to the given base URL
+     */
+    private Mono<Void> forwardRequestWithBody(ServerWebExchange exchange, String token, String targetBaseUrl) {
         ServerHttpRequest request = exchange.getRequest();
         ServerHttpResponse response = exchange.getResponse();
-        WebClient webClient = webClientBuilder.build();
 
-        URI targetUri = URI.create(identityServiceUrl + path);
-        log.info("Forwarding to Identity Service at {}", targetUri);
+        // Join request body buffers into a single DataBuffer
+        return DataBufferUtils.join(request.getBody())
+                .flatMap(dataBuffer -> {
+                    byte[] bodyBytes = new byte[dataBuffer.readableByteCount()];
+                    dataBuffer.read(bodyBytes);
+                    DataBufferUtils.release(dataBuffer);
 
-        return webClient.method(request.getMethod())
-                .uri(targetUri)
-                .headers(headers -> headers.set(HttpHeaders.AUTHORIZATION, "Bearer " + token))
-                .body(BodyInserters.fromDataBuffers(request.getBody()))
-                .exchangeToMono(clientResponse -> {
-                    response.setStatusCode(clientResponse.statusCode());
-                    clientResponse.headers().asHttpHeaders()
-                            .forEach((key, values) -> response.getHeaders().put(key, values));
-                    return response.writeWith(clientResponse.bodyToFlux(org.springframework.core.io.buffer.DataBuffer.class));
-                });
-    }
+                    URI targetUri = URI.create(targetBaseUrl + request.getURI().getPath());
+                    WebClient webClient = webClientBuilder.build();
 
-    private Mono<Void> forwardToBackend(ServerWebExchange exchange, String token, String path) {
-        ServerHttpRequest request = exchange.getRequest();
-        ServerHttpResponse response = exchange.getResponse();
-        WebClient webClient = webClientBuilder.build();
-
-        URI targetUri = URI.create(identityServiceUrl + path);
-        log.info("Forwarding to backend service at {}", targetUri);
-
-        return webClient.method(request.getMethod())
-                .uri(targetUri)
-                .headers(headers -> headers.set(HttpHeaders.AUTHORIZATION, "Bearer " + token))
-                .body(BodyInserters.fromDataBuffers(request.getBody()))
-                .exchangeToMono(clientResponse -> {
-                    response.setStatusCode(clientResponse.statusCode());
-                    clientResponse.headers().asHttpHeaders()
-                            .forEach((key, values) -> response.getHeaders().put(key, values));
-                    return response.writeWith(clientResponse.bodyToFlux(org.springframework.core.io.buffer.DataBuffer.class));
+                    return webClient.method(request.getMethod())
+                            .uri(targetUri)
+                            .headers(headers -> {
+                                headers.set(HttpHeaders.AUTHORIZATION, "Bearer " + token);
+                                // Copy all headers except Host and Content-Length
+                                request.getHeaders().forEach((key, values) -> {
+                                    if (!key.equalsIgnoreCase(HttpHeaders.HOST) &&
+                                            !key.equalsIgnoreCase(HttpHeaders.CONTENT_LENGTH)) {
+                                        headers.put(key, values);
+                                    }
+                                });
+                            })
+                            .bodyValue(bodyBytes)
+                            .exchangeToMono(clientResponse -> {
+                                response.setStatusCode(clientResponse.statusCode());
+                                clientResponse.headers().asHttpHeaders()
+                                        .forEach((key, values) -> response.getHeaders().put(key, values));
+                                return response.writeWith(clientResponse.bodyToFlux(org.springframework.core.io.buffer.DataBuffer.class));
+                            });
                 });
     }
 

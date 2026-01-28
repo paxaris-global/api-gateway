@@ -38,7 +38,7 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
     private final GatewayRoleService gatewayRoleService;
     private final RoleFetchService roleFetchService;
 
-    // Keycloak system roles → NEVER use for URI auth
+    // Keycloak system roles to ignore for URI auth
     private static final Set<String> IGNORED_ROLES = Set.of(
             "offline_access",
             "uma_authorization",
@@ -56,9 +56,7 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
 
         log.info("➡️ [GATEWAY] {} {}", request.getMethod(), path);
 
-        // -------------------------
-        // AUTO-REFRESH ROLE CACHE
-        // -------------------------
+        // Auto-refresh role cache on POST/PUT/DELETE to key endpoints
         if (request.getMethod() == HttpMethod.POST ||
             request.getMethod() == HttpMethod.PUT ||
             request.getMethod() == HttpMethod.DELETE) {
@@ -73,24 +71,21 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
             }
         }
 
-        // -------------------------
-        // SKIP AUTH FOR LOGIN/SIGNUP
-        // -------------------------
+        // Skip auth for login/signup endpoints (allow direct forwarding)
         if (path.contains("/login") || path.contains("/signup")) {
             return chain.filter(exchange);
         }
 
+        // Extract Bearer token
         String authHeader = request.getHeaders().getFirst(HttpHeaders.AUTHORIZATION);
         if (authHeader == null || !authHeader.startsWith("Bearer ")) {
             response.setStatusCode(HttpStatus.UNAUTHORIZED);
             return response.setComplete();
         }
-
         String token = authHeader.substring(7);
 
-        WebClient webClient = webClientBuilder
-                .baseUrl(identityServiceUrl)
-                .build();
+        // Call Identity Service /validate endpoint with token
+        WebClient webClient = webClientBuilder.baseUrl(identityServiceUrl).build();
 
         return webClient.get()
                 .uri("/validate")
@@ -112,15 +107,24 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
         ServerHttpResponse response = exchange.getResponse();
         String path = exchange.getRequest().getURI().getPath();
 
+        // Token validation failed
         if (!"VALID".equals(result.get("status"))) {
             response.setStatusCode(HttpStatus.FORBIDDEN);
             return response.setComplete();
         }
 
+        // If identity service API, forward request directly to Identity Service
+        if (path.startsWith("/identity/")) {
+            log.info("⏩ Identity API → forwarding to Identity Service");
+            return forward(exchange, token);
+        }
+
+        // Extract needed info from validation response
         String realm = result.get("realm").toString();
         String product = result.get("product").toString();
         String azp = result.get("azp").toString();
 
+        // Get roles and filter out ignored roles
         List<String> roles = ((List<String>) result.get("roles"))
                 .stream()
                 .map(String::toLowerCase)
@@ -130,28 +134,19 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
 
         log.info("🔐 realm={} product={} roles={}", realm, product, roles);
 
-        // -------------------------
-        // MASTER TOKEN (admin-cli)
-        // -------------------------
+        // Allow admin-cli master token to forward request without restriction
         if ("admin-cli".equals(azp)) {
             return forward(exchange, token);
         }
 
-        // -------------------------
-        // DB-DRIVEN URI AUTH
-        // -------------------------
+        // Check allowed URLs based on roles from DB/cache
         for (String role : roles) {
-
-            List<RealmProductRoleUrl> allowedUrls =
-                    gatewayRoleService.getUrls(realm, product, role);
-
+            List<RealmProductRoleUrl> allowedUrls = gatewayRoleService.getUrls(realm, product, role);
             if (allowedUrls == null) continue;
 
             for (RealmProductRoleUrl config : allowedUrls) {
-
-                // PREFIX match (CRITICAL)
+                // Prefix match is critical to allow partial matching on URI
                 if (path.startsWith(config.getUri())) {
-
                     String redirectTo = config.getUrl() + path;
                     log.info("✅ ACCESS GRANTED → {} → {}", role, redirectTo);
 
@@ -162,22 +157,22 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
             }
         }
 
+        // No matching allowed URL found for roles → deny access
         log.warn("⛔ ACCESS DENIED → {}", path);
         response.setStatusCode(HttpStatus.FORBIDDEN);
         return response.setComplete();
     }
 
     private Mono<Void> forward(ServerWebExchange exchange, String token) {
-
         ServerHttpRequest request = exchange.getRequest();
         ServerHttpResponse response = exchange.getResponse();
 
         WebClient webClient = webClientBuilder.build();
 
-        return webClient
-                .method(request.getMethod())
+        // Forward the request to the original URI with Authorization header
+        return webClient.method(request.getMethod())
                 .uri(request.getURI())
-                .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
+                .headers(headers -> headers.set(HttpHeaders.AUTHORIZATION, "Bearer " + token))
                 .exchangeToMono(clientResponse -> {
                     response.setStatusCode(clientResponse.statusCode());
                     response.getHeaders().addAll(clientResponse.headers().asHttpHeaders());

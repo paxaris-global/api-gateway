@@ -101,7 +101,7 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
                 .retrieve()
                 .bodyToMono(new ParameterizedTypeReference<Map<String, Object>>() {
                 })
-                .flatMap(result -> handleAuthorization(result, exchange, token))
+                .flatMap(result -> handleAuthorization(result, exchange, token, chain))
                 .onErrorResume(e -> {
                     log.error("❌ Token validation failed for path: {}", path, e);
                     if (e.getMessage() != null && e.getMessage().contains("401")) {
@@ -115,7 +115,8 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
 
     private Mono<Void> handleAuthorization(Map<String, Object> result,
                                            ServerWebExchange exchange,
-                                           String token) {
+                                           String token,
+                                           GatewayFilterChain chain) {
 
         ServerHttpResponse response = exchange.getResponse();
         String path = exchange.getRequest().getURI().getPath();
@@ -155,7 +156,7 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
                         ? identityServiceUrl.substring(0, identityServiceUrl.length() - 1) + path
                         : identityServiceUrl + path;
                 // Route to identity service
-                return routeToTarget(exchange, token, fullTargetUrl);
+                return routeToTarget(exchange, token, fullTargetUrl, chain);
             } else {
                 log.warn("⛔ User lacks admin role → access denied to identity API. User roles: {}", roles);
                 response.setStatusCode(HttpStatus.FORBIDDEN);
@@ -184,8 +185,27 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
                 log.debug("🔍 Comparing requested path '{}' with allowed URI '{}' for role '{}'", 
                         path, allowedUri, role);
                 
-                // Check if requested path starts with the allowed URI pattern
-                if (path.startsWith(allowedUri)) {
+                // Check if requested path matches the allowed URI pattern
+                boolean uriMatches = false;
+                
+                // Special handling for root URI '/'
+                if ("/".equals(allowedUri)) {
+                    // Root URI only matches root path
+                    uriMatches = "/".equals(path);
+                } else {
+                    // For other URIs, check if path starts with the allowed URI
+                    // Ensure it's a proper prefix match (not just any substring)
+                    if (path.startsWith(allowedUri)) {
+                        // Additional check: ensure it's a complete segment match
+                        // Either paths are equal, or the next character after the prefix is '/'
+                        if (path.length() == allowedUri.length() || 
+                            path.charAt(allowedUri.length()) == '/') {
+                            uriMatches = true;
+                        }
+                    }
+                }
+                
+                if (uriMatches) {
                     log.info("✅ URI MATCH FOUND → role='{}' allowedUri='{}' requestedPath='{}'", 
                             role, allowedUri, path);
                     
@@ -206,7 +226,7 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
                             role, allowedUri, path, fullTargetUrl);
                     
                     // Route request to target URL using gateway's routing mechanism
-                    return routeToTarget(exchange, token, fullTargetUrl);
+                    return routeToTarget(exchange, token, fullTargetUrl, chain);
                 }
             }
             
@@ -219,9 +239,10 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
     }
 
     /**
-     * Route request to target URL - forwards the request (not redirects)
+     * Route request to target URL using Spring Cloud Gateway's routing mechanism
+     * Modifies the exchange URI and continues the filter chain
      */
-    private Mono<Void> routeToTarget(ServerWebExchange exchange, String token, String fullTargetUrl) {
+    private Mono<Void> routeToTarget(ServerWebExchange exchange, String token, String fullTargetUrl, GatewayFilterChain chain) {
         ServerHttpRequest request = exchange.getRequest();
         
         // Build target URI with query parameters
@@ -230,14 +251,25 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
                 ? URI.create(fullTargetUrl + "?" + queryString)
                 : URI.create(fullTargetUrl);
         
-        log.debug("🔄 Forwarding request to: {}", targetUri);
+        log.debug("🔄 Routing request through gateway to: {}", targetUri);
         
-        // Forward request using WebClient (this forwards, not redirects)
-        return forwardRequestWithWebClient(exchange, token, targetUri);
+        // Modify the exchange to route to target URL and preserve Authorization header
+        ServerHttpRequest modifiedRequest = request.mutate()
+                .uri(targetUri)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
+                .build();
+        
+        // Create modified exchange and continue filter chain - let Spring Cloud Gateway handle routing
+        ServerWebExchange modifiedExchange = exchange.mutate()
+                .request(modifiedRequest)
+                .build();
+        
+        // Continue filter chain - Spring Cloud Gateway will route based on the modified URI
+        return chain.filter(modifiedExchange);
     }
     
     /**
-     * Forward request using WebClient (forwards, not redirects)
+     * Fallback: Forward request using WebClient if gateway routing not available
      */
     private Mono<Void> forwardRequestWithWebClient(ServerWebExchange exchange, String token, URI targetUri) {
         ServerHttpRequest request = exchange.getRequest();
@@ -271,7 +303,7 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
     }
     
     /**
-     * Execute WebClient request and forward response
+     * Execute WebClient request and forward response (fallback only)
      */
     private Mono<Void> executeWebClientRequest(WebClient webClient,
                                              ServerHttpRequest request,

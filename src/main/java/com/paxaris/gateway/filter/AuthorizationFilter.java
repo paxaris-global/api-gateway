@@ -16,6 +16,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.server.reactive.ServerHttpRequest;
 import org.springframework.http.server.reactive.ServerHttpResponse;
 import org.springframework.stereotype.Component;
+import org.springframework.web.reactive.function.BodyInserters;
 import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.server.ServerWebExchange;
 import reactor.core.publisher.Mono;
@@ -54,7 +55,7 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
 
         log.info("➡️ [GATEWAY] {} {}", request.getMethod(), path);
 
-        // Auto-refresh roles cache on key changes
+        // Refresh roles cache if POST/PUT/DELETE on key paths
         if (request.getMethod() == HttpMethod.POST ||
             request.getMethod() == HttpMethod.PUT ||
             request.getMethod() == HttpMethod.DELETE) {
@@ -176,12 +177,12 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
         return webClient.method(request.getMethod())
                 .uri(targetUri)
                 .headers(headers -> headers.set(HttpHeaders.AUTHORIZATION, "Bearer " + token))
-                .body(request.getBody(), byte[].class)  // forward request body properly
+                .body(BodyInserters.fromDataBuffers(request.getBody()))
                 .exchangeToMono(clientResponse -> {
                     response.setStatusCode(clientResponse.statusCode());
                     clientResponse.headers().asHttpHeaders()
                             .forEach((key, values) -> response.getHeaders().put(key, values));
-                    return response.writeWith(clientResponse.bodyToFlux(byte[].class));
+                    return response.writeWith(clientResponse.bodyToFlux(org.springframework.core.io.buffer.DataBuffer.class));
                 });
     }
 
@@ -196,12 +197,12 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
         return webClient.method(request.getMethod())
                 .uri(targetUri)
                 .headers(headers -> headers.set(HttpHeaders.AUTHORIZATION, "Bearer " + token))
-                .body(request.getBody(), byte[].class)  // forward request body properly
+                .body(BodyInserters.fromDataBuffers(request.getBody()))
                 .exchangeToMono(clientResponse -> {
                     response.setStatusCode(clientResponse.statusCode());
                     clientResponse.headers().asHttpHeaders()
                             .forEach((key, values) -> response.getHeaders().put(key, values));
-                    return response.writeWith(clientResponse.bodyToFlux(byte[].class));
+                    return response.writeWith(clientResponse.bodyToFlux(org.springframework.core.io.buffer.DataBuffer.class));
                 });
     }
 

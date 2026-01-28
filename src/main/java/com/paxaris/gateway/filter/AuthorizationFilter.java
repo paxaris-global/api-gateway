@@ -325,16 +325,20 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
                         // Copy status code
                         response.setStatusCode(clientResponse.statusCode());
                         
-                        // Copy response headers
+                        // Copy response headers (exclude headers that should be set automatically)
                         clientResponse.headers().asHttpHeaders()
                                 .forEach((key, values) -> {
-                                    // Don't copy Content-Length as it will be set automatically
-                                    if (!key.equalsIgnoreCase(HttpHeaders.CONTENT_LENGTH)) {
+                                    String lowerKey = key.toLowerCase();
+                                    // Don't copy headers that should be set automatically or cause issues
+                                    if (!lowerKey.equals("content-length") &&
+                                        !lowerKey.equals("transfer-encoding") &&
+                                        !lowerKey.equals("connection") &&
+                                        !lowerKey.equals("host")) {
                                         response.getHeaders().put(key, values);
                                     }
                                 });
                         
-                        // Stream response body
+                        // Stream response body directly
                         return response.writeWith(clientResponse.bodyToFlux(org.springframework.core.io.buffer.DataBuffer.class));
                     })
                     .onErrorResume(e -> {

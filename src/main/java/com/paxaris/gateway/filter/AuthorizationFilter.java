@@ -1,6 +1,5 @@
 package com.paxaris.gateway.filter;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.paxaris.gateway.service.GatewayRoleService;
 import com.paxaris.gateway.service.RoleFetchService;
 import dto.RealmProductRoleUrl;
@@ -14,19 +13,18 @@ import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
-import org.springframework.http.MediaType;
 import org.springframework.http.server.reactive.ServerHttpRequest;
 import org.springframework.http.server.reactive.ServerHttpResponse;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.server.ServerWebExchange;
-import org.springframework.core.io.buffer.DataBufferUtils;
 import reactor.core.publisher.Mono;
 
 import java.net.URI;
-import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 @Component
 @Slf4j
@@ -40,7 +38,14 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
     private final GatewayRoleService gatewayRoleService;
     private final RoleFetchService roleFetchService;
 
-    private final ObjectMapper objectMapper = new ObjectMapper();
+    // Keycloak system roles → NEVER use for URI auth
+    private static final Set<String> IGNORED_ROLES = Set.of(
+            "offline_access",
+            "uma_authorization",
+            "manage-account",
+            "manage-account-links",
+            "view-profile"
+    );
 
     @Override
     public Mono<Void> filter(ServerWebExchange exchange, GatewayFilterChain chain) {
@@ -49,209 +54,136 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
         ServerHttpResponse response = exchange.getResponse();
         String path = request.getURI().getPath();
 
-        log.info("➡️ [GATEWAY] Incoming request: {} {}", request.getMethod(), path);
-        log.info("📟 [CURL] Command:\n{}", buildCurlCommand(request));
+        log.info("➡️ [GATEWAY] {} {}", request.getMethod(), path);
 
-        // Auto-refresh roles on create/update/assign
+        // -------------------------
+        // AUTO-REFRESH ROLE CACHE
+        // -------------------------
         if (request.getMethod() == HttpMethod.POST ||
-                request.getMethod() == HttpMethod.PUT ||
-                request.getMethod() == HttpMethod.DELETE) {
+            request.getMethod() == HttpMethod.PUT ||
+            request.getMethod() == HttpMethod.DELETE) {
 
             if (path.contains("/signup") ||
-                    path.contains("/users") ||
-                    path.contains("/clients") ||
-                    path.contains("/roles")) {
+                path.contains("/users") ||
+                path.contains("/clients") ||
+                path.contains("/roles")) {
 
-                log.info("🟡 Detected create/update/assign → scheduling role refresh in 10 seconds...");
+                log.info("🟡 Role config changed → refreshing gateway roles");
                 roleFetchService.fetchRolesDelayed();
-                // continue with auth + forwarding
             }
         }
 
-        // Skip login and signup endpoints
+        // -------------------------
+        // SKIP AUTH FOR LOGIN/SIGNUP
+        // -------------------------
         if (path.contains("/login") || path.contains("/signup")) {
-            log.info("🔓 Skipping auth for login/signup: {}", path);
             return chain.filter(exchange);
         }
 
         String authHeader = request.getHeaders().getFirst(HttpHeaders.AUTHORIZATION);
-
         if (authHeader == null || !authHeader.startsWith("Bearer ")) {
-            log.warn("❌ Missing or invalid Authorization header");
             response.setStatusCode(HttpStatus.UNAUTHORIZED);
             return response.setComplete();
         }
 
-        String token = authHeader.substring(7).trim();
-        WebClient webClient = webClientBuilder.baseUrl(identityServiceUrl).build();
+        String token = authHeader.substring(7);
+
+        WebClient webClient = webClientBuilder
+                .baseUrl(identityServiceUrl)
+                .build();
 
         return webClient.get()
                 .uri("/validate")
                 .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
                 .retrieve()
                 .bodyToMono(new ParameterizedTypeReference<Map<String, Object>>() {})
-                .flatMap(result -> handleValidationResponse(result, path, response, exchange, token))
+                .flatMap(result -> handleAuthorization(result, exchange, token))
                 .onErrorResume(e -> {
-                    log.error("💥 [GATEWAY] Validation failed: {}", e.getMessage());
+                    log.error("❌ Validation failed", e);
                     response.setStatusCode(HttpStatus.INTERNAL_SERVER_ERROR);
                     return response.setComplete();
                 });
     }
 
-   private Mono<Void> handleValidationResponse(Map<String, Object> result, String path,
-                                            ServerHttpResponse response,
-                                            ServerWebExchange exchange,
-                                            String token) {
+    private Mono<Void> handleAuthorization(Map<String, Object> result,
+                                           ServerWebExchange exchange,
+                                           String token) {
 
-    if (!"VALID".equals(result.get("status"))) {
-        log.warn("❌ Token invalid for URL: {}", path);
-        response.setStatusCode(HttpStatus.FORBIDDEN);
-        return response.setComplete();
-    }
+        ServerHttpResponse response = exchange.getResponse();
+        String path = exchange.getRequest().getURI().getPath();
 
-    String realm = result.getOrDefault("realm", "").toString();
-    String product = result.getOrDefault("product", "").toString();
-    List<String> roles = (List<String>) result.getOrDefault("roles", List.of());
-    String azp = result.getOrDefault("azp", "").toString();
-
-    log.info("🔹 Token OK → Realm={}, Product={}, Roles={}, azp={}", realm, product, roles, azp);
-
-    // Master token → always allowed
-    if ("admin-cli".equals(azp)) {
-        log.info("👑 Master token detected");
-        return forwardRequest(exchange, token);
-    }
-
-    // Keycloak Admin API allowed roles
-    boolean isKeycloakAdminApi = path.matches("^/identity/[^/]+/(users|clients|roles|groups|components|identity-provider).*");
-
-    if (isKeycloakAdminApi) {
-        if (roles.contains("admin") || roles.contains("manage-users") ||
-                roles.contains("manage-clients") || roles.contains("manage-realm")) {
-
-            log.info("✅ Keycloak Admin API allowed");
-            return forwardRequest(exchange, token);
-        }
-        log.warn("❌ Keycloak Admin API denied — insufficient roles");
-        response.setStatusCode(HttpStatus.FORBIDDEN);
-        return response.setComplete();
-    }
-
-    // Check role in URL path like /role355
-    String[] pathParts = path.split("/");
-    if (pathParts.length > 1 && pathParts[1].startsWith("role")) {
-        String roleFromUrl = pathParts[1];
-        if (!roles.contains(roleFromUrl)) {
-            log.warn("❌ Token does NOT contain role required for URL: {}", roleFromUrl);
+        if (!"VALID".equals(result.get("status"))) {
             response.setStatusCode(HttpStatus.FORBIDDEN);
             return response.setComplete();
-        } else {
-            log.info("✅ Token contains role required for URL: {}", roleFromUrl);
         }
-    }
 
-    // *** URL redirection based on role config - moved BEFORE system roles check ***
-    String adjustedPath = path.replaceFirst("", "");
-    for (String role : roles) {
-        List<RealmProductRoleUrl> urls = gatewayRoleService.getUrls(realm, product, role);
-        if (urls == null) continue;
-        for (RealmProductRoleUrl url : urls) {
-            if (adjustedPath.equals(url.getUri())) {
-                String redirectTo = url.getUrl() + url.getUri();
-                log.info("🚀 Redirecting to: {}", redirectTo);
+        String realm = result.get("realm").toString();
+        String product = result.get("product").toString();
+        String azp = result.get("azp").toString();
 
-                response.setStatusCode(HttpStatus.FOUND);
-                response.getHeaders().setLocation(URI.create(redirectTo));
-                return response.setComplete();
+        List<String> roles = ((List<String>) result.get("roles"))
+                .stream()
+                .map(String::toLowerCase)
+                .filter(r -> !IGNORED_ROLES.contains(r))
+                .filter(r -> !r.startsWith("default-roles-"))
+                .collect(Collectors.toList());
+
+        log.info("🔐 realm={} product={} roles={}", realm, product, roles);
+
+        // -------------------------
+        // MASTER TOKEN (admin-cli)
+        // -------------------------
+        if ("admin-cli".equals(azp)) {
+            return forward(exchange, token);
+        }
+
+        // -------------------------
+        // DB-DRIVEN URI AUTH
+        // -------------------------
+        for (String role : roles) {
+
+            List<RealmProductRoleUrl> allowedUrls =
+                    gatewayRoleService.getUrls(realm, product, role);
+
+            if (allowedUrls == null) continue;
+
+            for (RealmProductRoleUrl config : allowedUrls) {
+
+                // PREFIX match (CRITICAL)
+                if (path.startsWith(config.getUri())) {
+
+                    String redirectTo = config.getUrl() + path;
+                    log.info("✅ ACCESS GRANTED → {} → {}", role, redirectTo);
+
+                    response.setStatusCode(HttpStatus.FOUND);
+                    response.getHeaders().setLocation(URI.create(redirectTo));
+                    return response.setComplete();
+                }
             }
         }
+
+        log.warn("⛔ ACCESS DENIED → {}", path);
+        response.setStatusCode(HttpStatus.FORBIDDEN);
+        return response.setComplete();
     }
 
-    // System roles skip URL check and allow forwarding
-    List<String> systemRoles = List.of(
-            "admin", "manage-users", "manage-realm", "create-client",
-            "impersonation", "manage-account", "view-profile"
-    );
+    private Mono<Void> forward(ServerWebExchange exchange, String token) {
 
-    if (roles.stream().anyMatch(systemRoles::contains)) {
-        log.info("👑 System role detected → forwarding request");
-        return forwardRequest(exchange, token);
-    }
+        ServerHttpRequest request = exchange.getRequest();
+        ServerHttpResponse response = exchange.getResponse();
 
-    log.warn("❌ Access denied to URL: {}", path);
-    response.setStatusCode(HttpStatus.FORBIDDEN);
-    return response.setComplete();
-}
+        WebClient webClient = webClientBuilder.build();
 
-    private Mono<Void> forwardRequest(ServerWebExchange exchange, String token) {
-
-    ServerHttpRequest request = exchange.getRequest();
-    ServerHttpResponse response = exchange.getResponse();
-
-    WebClient webClient = webClientBuilder.baseUrl(identityServiceUrl).build();
-    HttpMethod method = request.getMethod();
-
-    Mono<byte[]> bodyMono = DataBufferUtils.join(request.getBody())
-            .map(dataBuffer -> {
-                byte[] bytes = new byte[dataBuffer.readableByteCount()];
-                dataBuffer.read(bytes);
-                DataBufferUtils.release(dataBuffer);
-                return bytes;
-            })
-            .defaultIfEmpty(new byte[0]);
-
-    return bodyMono.flatMap(bodyBytes -> {
-        String path = request.getURI().getPath();
-        String query = request.getURI().getQuery();
-        String forwardUrl = path + (query != null ? "?" + query : "");
-
-        log.info("➡️ Forwarding to {}", forwardUrl);
-
-        WebClient.RequestBodySpec requestSpec = webClient.method(method)
-                .uri(forwardUrl)
-                .header(HttpHeaders.AUTHORIZATION, "Bearer " + token);
-
-        if (method == HttpMethod.POST || method == HttpMethod.PUT) {
-            String bodyString = new String(bodyBytes, StandardCharsets.UTF_8);
-            requestSpec.contentType(MediaType.APPLICATION_JSON)
-                    .bodyValue(bodyString);
-        }
-
-        return requestSpec.exchangeToMono(clientResponse -> {
-            // Copy status code
-            response.setStatusCode(clientResponse.statusCode());
-
-            // Copy headers except Transfer-Encoding
-            HttpHeaders headers = new HttpHeaders();
-            headers.putAll(clientResponse.headers().asHttpHeaders());
-            headers.remove(HttpHeaders.TRANSFER_ENCODING);
-
-            response.getHeaders().clear();
-            response.getHeaders().putAll(headers);
-
-            return clientResponse.bodyToMono(byte[].class)
-                    .flatMap(body -> {
-                        // Set Content-Length explicitly
-                        response.getHeaders().setContentLength(body.length);
-                        return response.writeWith(Mono.just(response.bufferFactory().wrap(body)));
-                    });
-        });
-    });
-}
-
-
-    private String buildCurlCommand(ServerHttpRequest request) {
-        StringBuilder curl = new StringBuilder("curl -X ")
-                .append(request.getMethod())
-                .append(" '")
-                .append(request.getURI())
-                .append("'");
-
-        request.getHeaders().forEach((key, values) ->
-                values.forEach(value ->
-                        curl.append(" \\\n  -H '").append(key).append(": ").append(value).append("'"))
-        );
-        return curl.toString();
+        return webClient
+                .method(request.getMethod())
+                .uri(request.getURI())
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
+                .exchangeToMono(clientResponse -> {
+                    response.setStatusCode(clientResponse.statusCode());
+                    response.getHeaders().addAll(clientResponse.headers().asHttpHeaders());
+                    return response.writeWith(clientResponse.bodyToFlux(byte[].class)
+                            .map(bytes -> response.bufferFactory().wrap(bytes)));
+                });
     }
 
     @Override

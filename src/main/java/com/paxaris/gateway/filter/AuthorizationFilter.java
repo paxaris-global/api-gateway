@@ -98,90 +98,90 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
                 });
     }
 
-    private Mono<Void> handleValidationResponse(Map<String, Object> result, String path,
-                                                ServerHttpResponse response,
-                                                ServerWebExchange exchange,
-                                                String token) {
+   private Mono<Void> handleValidationResponse(Map<String, Object> result, String path,
+                                            ServerHttpResponse response,
+                                            ServerWebExchange exchange,
+                                            String token) {
 
-        if (!"VALID".equals(result.get("status"))) {
-            log.warn("❌ Token invalid for URL: {}", path);
-            response.setStatusCode(HttpStatus.FORBIDDEN);
-            return response.setComplete();
-        }
-
-        String realm = result.getOrDefault("realm", "").toString();
-        String product = result.getOrDefault("product", "").toString();
-        List<String> roles = (List<String>) result.getOrDefault("roles", List.of());
-        String azp = result.getOrDefault("azp", "").toString();
-
-        log.info("🔹 Token OK → Realm={}, Product={}, Roles={}, azp={}", realm, product, roles, azp);
-
-        // Master token → always allowed
-        if ("admin-cli".equals(azp)) {
-            log.info("👑 Master token detected");
-            return forwardRequest(exchange, token);
-        }
-
-        // Keycloak Admin API allowed roles
-        boolean isKeycloakAdminApi = path.matches("^/identity/[^/]+/(users|clients|roles|groups|components|identity-provider).*");
-
-        if (isKeycloakAdminApi) {
-            if (roles.contains("admin") || roles.contains("manage-users") ||
-                    roles.contains("manage-clients") || roles.contains("manage-realm")) {
-
-                log.info("✅ Keycloak Admin API allowed");
-                return forwardRequest(exchange, token);
-            }
-            log.warn("❌ Keycloak Admin API denied — insufficient roles");
-            response.setStatusCode(HttpStatus.FORBIDDEN);
-            return response.setComplete();
-        }
-
-        // Check role in URL path like /role355
-        String[] pathParts = path.split("/");
-        if (pathParts.length > 1 && pathParts[1].startsWith("role")) {
-            String roleFromUrl = pathParts[1];
-            if (!roles.contains(roleFromUrl)) {
-                log.warn("❌ Token does NOT contain role required for URL: {}", roleFromUrl);
-                response.setStatusCode(HttpStatus.FORBIDDEN);
-                return response.setComplete();
-            } else {
-                log.info("✅ Token contains role required for URL: {}", roleFromUrl);
-            }
-        }
-
-        // System roles skip URL check
-        List<String> systemRoles = List.of(
-                "admin", "manage-users", "manage-realm", "create-client",
-                "impersonation", "manage-account", "view-profile"
-        );
-
-        if (roles.stream().anyMatch(systemRoles::contains)) {
-            log.info("👑 System role detected → forwarding request");
-            return forwardRequest(exchange, token);
-        }
-
-        // URL redirection based on role config
-        String adjustedPath = path.replaceFirst("", "");
-        for (String role : roles) {
-            List<RealmProductRoleUrl> urls = gatewayRoleService.getUrls(realm, product, role);
-            if (urls == null) continue;
-            for (RealmProductRoleUrl url : urls) {
-                if (adjustedPath.equals(url.getUri())) {
-                    String redirectTo = url.getUrl() + url.getUri();
-                    log.info("🚀 Redirecting to: {}", redirectTo);
-
-                    response.setStatusCode(HttpStatus.FOUND);
-                    response.getHeaders().setLocation(URI.create(redirectTo));
-                    return response.setComplete();
-                }
-            }
-        }
-
-        log.warn("❌ Access denied to URL: {}", path);
+    if (!"VALID".equals(result.get("status"))) {
+        log.warn("❌ Token invalid for URL: {}", path);
         response.setStatusCode(HttpStatus.FORBIDDEN);
         return response.setComplete();
     }
+
+    String realm = result.getOrDefault("realm", "").toString();
+    String product = result.getOrDefault("product", "").toString();
+    List<String> roles = (List<String>) result.getOrDefault("roles", List.of());
+    String azp = result.getOrDefault("azp", "").toString();
+
+    log.info("🔹 Token OK → Realm={}, Product={}, Roles={}, azp={}", realm, product, roles, azp);
+
+    // Master token → always allowed
+    if ("admin-cli".equals(azp)) {
+        log.info("👑 Master token detected");
+        return forwardRequest(exchange, token);
+    }
+
+    // Keycloak Admin API allowed roles
+    boolean isKeycloakAdminApi = path.matches("^/identity/[^/]+/(users|clients|roles|groups|components|identity-provider).*");
+
+    if (isKeycloakAdminApi) {
+        if (roles.contains("admin") || roles.contains("manage-users") ||
+                roles.contains("manage-clients") || roles.contains("manage-realm")) {
+
+            log.info("✅ Keycloak Admin API allowed");
+            return forwardRequest(exchange, token);
+        }
+        log.warn("❌ Keycloak Admin API denied — insufficient roles");
+        response.setStatusCode(HttpStatus.FORBIDDEN);
+        return response.setComplete();
+    }
+
+    // Check role in URL path like /role355
+    String[] pathParts = path.split("/");
+    if (pathParts.length > 1 && pathParts[1].startsWith("role")) {
+        String roleFromUrl = pathParts[1];
+        if (!roles.contains(roleFromUrl)) {
+            log.warn("❌ Token does NOT contain role required for URL: {}", roleFromUrl);
+            response.setStatusCode(HttpStatus.FORBIDDEN);
+            return response.setComplete();
+        } else {
+            log.info("✅ Token contains role required for URL: {}", roleFromUrl);
+        }
+    }
+
+    // *** URL redirection based on role config - moved BEFORE system roles check ***
+    String adjustedPath = path.replaceFirst("", "");
+    for (String role : roles) {
+        List<RealmProductRoleUrl> urls = gatewayRoleService.getUrls(realm, product, role);
+        if (urls == null) continue;
+        for (RealmProductRoleUrl url : urls) {
+            if (adjustedPath.equals(url.getUri())) {
+                String redirectTo = url.getUrl() + url.getUri();
+                log.info("🚀 Redirecting to: {}", redirectTo);
+
+                response.setStatusCode(HttpStatus.FOUND);
+                response.getHeaders().setLocation(URI.create(redirectTo));
+                return response.setComplete();
+            }
+        }
+    }
+
+    // System roles skip URL check and allow forwarding
+    List<String> systemRoles = List.of(
+            "admin", "manage-users", "manage-realm", "create-client",
+            "impersonation", "manage-account", "view-profile"
+    );
+
+    if (roles.stream().anyMatch(systemRoles::contains)) {
+        log.info("👑 System role detected → forwarding request");
+        return forwardRequest(exchange, token);
+    }
+
+    log.warn("❌ Access denied to URL: {}", path);
+    response.setStatusCode(HttpStatus.FORBIDDEN);
+    return response.setComplete();
+}
 
     private Mono<Void> forwardRequest(ServerWebExchange exchange, String token) {
 

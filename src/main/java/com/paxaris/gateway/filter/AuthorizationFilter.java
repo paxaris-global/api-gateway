@@ -113,18 +113,18 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
             return response.setComplete();
         }
 
-        // If identity service API, forward request directly to Identity Service
+        // If identity service API, forward request directly to Identity Service (avoid loop!)
         if (path.startsWith("/identity/")) {
             log.info("⏩ Identity API → forwarding to Identity Service");
-            return forward(exchange, token);
+            return forwardToIdentityService(exchange, token, path);
         }
 
-        // Extract needed info from validation response
+        // Extract info from validation response
         String realm = result.get("realm").toString();
         String product = result.get("product").toString();
         String azp = result.get("azp").toString();
 
-        // Get roles and filter out ignored roles
+        // Get roles and filter ignored
         List<String> roles = ((List<String>) result.get("roles"))
                 .stream()
                 .map(String::toLowerCase)
@@ -136,7 +136,8 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
 
         // Allow admin-cli master token to forward request without restriction
         if ("admin-cli".equals(azp)) {
-            return forward(exchange, token);
+            log.info("⏩ admin-cli token → forwarding to backend");
+            return forwardToBackend(exchange, token, path);
         }
 
         // Check allowed URLs based on roles from DB/cache
@@ -145,7 +146,7 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
             if (allowedUrls == null) continue;
 
             for (RealmProductRoleUrl config : allowedUrls) {
-                // Prefix match is critical to allow partial matching on URI
+                // Prefix match (critical)
                 if (path.startsWith(config.getUri())) {
                     String redirectTo = config.getUrl() + path;
                     log.info("✅ ACCESS GRANTED → {} → {}", role, redirectTo);
@@ -157,21 +158,49 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
             }
         }
 
-        // No matching allowed URL found for roles → deny access
+        // No matching allowed URL found → deny access
         log.warn("⛔ ACCESS DENIED → {}", path);
         response.setStatusCode(HttpStatus.FORBIDDEN);
         return response.setComplete();
     }
 
-    private Mono<Void> forward(ServerWebExchange exchange, String token) {
+    // Forward identity API requests properly to identity service (real backend URL)
+    private Mono<Void> forwardToIdentityService(ServerWebExchange exchange, String token, String path) {
+        ServerHttpResponse response = exchange.getResponse();
+        WebClient webClient = webClientBuilder.build();
+
+        URI targetUri = URI.create(identityServiceUrl + path);
+
+        log.info("Forwarding to Identity Service at {}", targetUri);
+
+        return webClient.method(exchange.getRequest().getMethod())
+                .uri(targetUri)
+                .headers(headers -> headers.set(HttpHeaders.AUTHORIZATION, "Bearer " + token))
+                .exchangeToMono(clientResponse -> {
+                    response.setStatusCode(clientResponse.statusCode());
+                    response.getHeaders().addAll(clientResponse.headers().asHttpHeaders());
+                    return response.writeWith(clientResponse.bodyToFlux(byte[].class)
+                            .map(bytes -> response.bufferFactory().wrap(bytes)));
+                });
+    }
+
+    // Forward admin-cli or unrestricted requests to backend service (avoid looping)
+    // This example assumes the original URI is a real backend service URL (not the gateway)
+    private Mono<Void> forwardToBackend(ServerWebExchange exchange, String token, String path) {
         ServerHttpRequest request = exchange.getRequest();
         ServerHttpResponse response = exchange.getResponse();
 
         WebClient webClient = webClientBuilder.build();
 
-        // Forward the request to the original URI with Authorization header
+        // IMPORTANT: Forward to actual backend service URL, NOT the API Gateway URL!
+        // If the original URI is the gateway's, replace it with the backend URL accordingly.
+        // For demo, forward to identityServiceUrl + path (customize as needed per your services)
+        URI targetUri = URI.create(identityServiceUrl + path);
+
+        log.info("Forwarding to backend service at {}", targetUri);
+
         return webClient.method(request.getMethod())
-                .uri(request.getURI())
+                .uri(targetUri)
                 .headers(headers -> headers.set(HttpHeaders.AUTHORIZATION, "Bearer " + token))
                 .exchangeToMono(clientResponse -> {
                     response.setStatusCode(clientResponse.statusCode());

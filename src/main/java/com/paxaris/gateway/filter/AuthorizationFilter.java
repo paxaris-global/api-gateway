@@ -150,8 +150,12 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
             
             if (isAdmin) {
                 log.info("✅ User has admin role → routing to Identity Service");
-                // Modify exchange to route to identity service
-                return routeToTarget(exchange, token, identityServiceUrl, path);
+                // Build full target URL for identity service
+                String fullTargetUrl = identityServiceUrl.endsWith("/") 
+                        ? identityServiceUrl.substring(0, identityServiceUrl.length() - 1) + path
+                        : identityServiceUrl + path;
+                // Route to identity service
+                return routeToTarget(exchange, token, fullTargetUrl);
             } else {
                 log.warn("⛔ User lacks admin role → access denied to identity API. User roles: {}", roles);
                 response.setStatusCode(HttpStatus.FORBIDDEN);
@@ -185,12 +189,7 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
                     log.info("✅ URI MATCH FOUND → role='{}' allowedUri='{}' requestedPath='{}'", 
                             role, allowedUri, path);
                     
-                    // Build target URL: replace matched URI prefix with target URL
-                    String remainingPath = path.substring(allowedUri.length());
-                    // Ensure remaining path starts with / if not empty
-                    if (!remainingPath.startsWith("/") && !remainingPath.isEmpty()) {
-                        remainingPath = "/" + remainingPath;
-                    }
+                    // Build target URL: forward the full path to target service
                     String targetBaseUrl = config.getUrl();
                     if (targetBaseUrl == null || targetBaseUrl.isEmpty()) {
                         log.error("❌ Target URL is null or empty for role '{}' and URI '{}'", role, allowedUri);
@@ -200,13 +199,14 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
                     if (targetBaseUrl.endsWith("/")) {
                         targetBaseUrl = targetBaseUrl.substring(0, targetBaseUrl.length() - 1);
                     }
-                    String fullTargetUrl = targetBaseUrl + remainingPath;
+                    // Forward the full requested path to the target service
+                    String fullTargetUrl = targetBaseUrl + path;
                     
                     log.info("✅ ACCESS GRANTED → role={} matchedUri={} requestedPath={} → routing to {}", 
                             role, allowedUri, path, fullTargetUrl);
                     
                     // Route request to target URL using gateway's routing mechanism
-                    return routeToTarget(exchange, token, targetBaseUrl, remainingPath);
+                    return routeToTarget(exchange, token, fullTargetUrl);
                 }
             }
             
@@ -221,19 +221,14 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
     /**
      * Route request to target URL - forwards the request (not redirects)
      */
-    private Mono<Void> routeToTarget(ServerWebExchange exchange, String token, String targetBaseUrl, String targetPath) {
+    private Mono<Void> routeToTarget(ServerWebExchange exchange, String token, String fullTargetUrl) {
         ServerHttpRequest request = exchange.getRequest();
         
         // Build target URI with query parameters
         String queryString = request.getURI().getQuery();
-        String fullPath = targetPath.startsWith("/") ? targetPath : "/" + targetPath;
-        String targetUrl = targetBaseUrl.endsWith("/") 
-                ? targetBaseUrl.substring(0, targetBaseUrl.length() - 1) + fullPath
-                : targetBaseUrl + fullPath;
-        
         URI targetUri = queryString != null && !queryString.isEmpty() 
-                ? URI.create(targetUrl + "?" + queryString)
-                : URI.create(targetUrl);
+                ? URI.create(fullTargetUrl + "?" + queryString)
+                : URI.create(fullTargetUrl);
         
         log.debug("🔄 Forwarding request to: {}", targetUri);
         

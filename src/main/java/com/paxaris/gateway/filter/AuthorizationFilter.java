@@ -149,8 +149,9 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
             boolean isAdmin = isAdminRole(roles);
             
             if (isAdmin) {
-                log.info("✅ User has admin role → forwarding to Identity Service");
-                return forwardRequestWithBody(exchange, token, identityServiceUrl);
+                log.info("✅ User has admin role → routing to Identity Service");
+                // Modify exchange to route to identity service
+                return routeToTarget(exchange, token, identityServiceUrl, path);
             } else {
                 log.warn("⛔ User lacks admin role → access denied to identity API. User roles: {}", roles);
                 response.setStatusCode(HttpStatus.FORBIDDEN);
@@ -201,11 +202,11 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
                     }
                     String fullTargetUrl = targetBaseUrl + remainingPath;
                     
-                    log.info("✅ ACCESS GRANTED → role={} matchedUri={} requestedPath={} → forwarding to {}", 
+                    log.info("✅ ACCESS GRANTED → role={} matchedUri={} requestedPath={} → routing to {}", 
                             role, allowedUri, path, fullTargetUrl);
                     
-                    // Forward request with token to the target URL
-                    return forwardRequestToFullUrl(exchange, token, fullTargetUrl);
+                    // Route request to target URL using gateway's routing mechanism
+                    return routeToTarget(exchange, token, targetBaseUrl, remainingPath);
                 }
             }
             
@@ -218,55 +219,43 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
     }
 
     /**
-     * Helper to forward request to a full URL (used for role-based forwarding)
+     * Route request to target URL - forwards the request (not redirects)
      */
-    private Mono<Void> forwardRequestToFullUrl(ServerWebExchange exchange, String token, String fullTargetUrl) {
+    private Mono<Void> routeToTarget(ServerWebExchange exchange, String token, String targetBaseUrl, String targetPath) {
         ServerHttpRequest request = exchange.getRequest();
-        ServerHttpResponse response = exchange.getResponse();
-
+        
         // Build target URI with query parameters
         String queryString = request.getURI().getQuery();
+        String fullPath = targetPath.startsWith("/") ? targetPath : "/" + targetPath;
+        String targetUrl = targetBaseUrl.endsWith("/") 
+                ? targetBaseUrl.substring(0, targetBaseUrl.length() - 1) + fullPath
+                : targetBaseUrl + fullPath;
+        
         URI targetUri = queryString != null && !queryString.isEmpty() 
-                ? URI.create(fullTargetUrl + "?" + queryString)
-                : URI.create(fullTargetUrl);
-
-        return forwardRequestInternal(exchange, token, targetUri);
+                ? URI.create(targetUrl + "?" + queryString)
+                : URI.create(targetUrl);
+        
+        log.debug("🔄 Forwarding request to: {}", targetUri);
+        
+        // Forward request using WebClient (this forwards, not redirects)
+        return forwardRequestWithWebClient(exchange, token, targetUri);
     }
-
+    
     /**
-     * Helper to forward request (with body and headers) to the given base URL
-     * Appends the request path to the base URL
+     * Forward request using WebClient (forwards, not redirects)
      */
-    private Mono<Void> forwardRequestWithBody(ServerWebExchange exchange, String token, String targetBaseUrl) {
-        ServerHttpRequest request = exchange.getRequest();
-        ServerHttpResponse response = exchange.getResponse();
-
-        // Build target URI with query parameters
-        String queryString = request.getURI().getQuery();
-        String targetPath = targetBaseUrl + request.getURI().getPath();
-        URI targetUri = queryString != null && !queryString.isEmpty() 
-                ? URI.create(targetPath + "?" + queryString)
-                : URI.create(targetPath);
-
-        return forwardRequestInternal(exchange, token, targetUri);
-    }
-
-    /**
-     * Internal method to forward request with proper body handling
-     */
-    private Mono<Void> forwardRequestInternal(ServerWebExchange exchange, String token, URI targetUri) {
+    private Mono<Void> forwardRequestWithWebClient(ServerWebExchange exchange, String token, URI targetUri) {
         ServerHttpRequest request = exchange.getRequest();
         ServerHttpResponse response = exchange.getResponse();
         WebClient webClient = webClientBuilder.build();
         
-        // Check if request has a body (POST, PUT, PATCH, DELETE)
+        // Check if request has a body
         boolean hasBody = request.getMethod() == HttpMethod.POST || 
                          request.getMethod() == HttpMethod.PUT || 
                          request.getMethod() == HttpMethod.PATCH ||
                          request.getMethod() == HttpMethod.DELETE;
 
         if (hasBody) {
-            // Join request body buffers into a single DataBuffer
             return DataBufferUtils.join(request.getBody())
                     .flatMap(dataBuffer -> {
                         byte[] bodyBytes = null;
@@ -275,36 +264,31 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
                             dataBuffer.read(bodyBytes);
                         }
                         DataBufferUtils.release(dataBuffer);
-                        return forwardRequest(webClient, request, response, token, targetUri, bodyBytes);
+                        return executeWebClientRequest(webClient, request, response, token, targetUri, bodyBytes);
                     })
                     .onErrorResume(e -> {
                         log.error("❌ Error reading request body for {}", targetUri, e);
-                        // Try forwarding without body
-                        return forwardRequest(webClient, request, response, token, targetUri, null);
+                        return executeWebClientRequest(webClient, request, response, token, targetUri, null);
                     });
         } else {
-            // No body, forward directly
-            return forwardRequest(webClient, request, response, token, targetUri, null);
+            return executeWebClientRequest(webClient, request, response, token, targetUri, null);
         }
     }
-
+    
     /**
-     * Core method to forward the HTTP request using WebClient
+     * Execute WebClient request and forward response
      */
-    private Mono<Void> forwardRequest(WebClient webClient, 
-                                     ServerHttpRequest request, 
-                                     ServerHttpResponse response, 
-                                     String token, 
-                                     URI targetUri, 
-                                     byte[] bodyBytes) {
+    private Mono<Void> executeWebClientRequest(WebClient webClient,
+                                             ServerHttpRequest request,
+                                             ServerHttpResponse response,
+                                             String token,
+                                             URI targetUri,
+                                             byte[] bodyBytes) {
         try {
             WebClient.RequestBodySpec requestSpec = webClient.method(request.getMethod())
                     .uri(targetUri)
                     .headers(headers -> {
-                        // Set Authorization header with token
                         headers.set(HttpHeaders.AUTHORIZATION, "Bearer " + token);
-                        
-                        // Copy all headers except Host and Content-Length (will be set automatically)
                         request.getHeaders().forEach((key, values) -> {
                             if (!key.equalsIgnoreCase(HttpHeaders.HOST) &&
                                     !key.equalsIgnoreCase(HttpHeaders.CONTENT_LENGTH)) {
@@ -313,23 +297,16 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
                         });
                     });
 
-            WebClient.RequestHeadersSpec<?> requestSpecWithBody;
-            if (bodyBytes != null && bodyBytes.length > 0) {
-                requestSpecWithBody = requestSpec.bodyValue(bodyBytes);
-            } else {
-                requestSpecWithBody = requestSpec;
-            }
+            WebClient.RequestHeadersSpec<?> requestSpecWithBody = (bodyBytes != null && bodyBytes.length > 0)
+                    ? requestSpec.bodyValue(bodyBytes)
+                    : requestSpec;
 
             return requestSpecWithBody
                     .exchangeToMono(clientResponse -> {
-                        // Copy status code
                         response.setStatusCode(clientResponse.statusCode());
-                        
-                        // Copy response headers (exclude headers that should be set automatically)
                         clientResponse.headers().asHttpHeaders()
                                 .forEach((key, values) -> {
                                     String lowerKey = key.toLowerCase();
-                                    // Don't copy headers that should be set automatically or cause issues
                                     if (!lowerKey.equals("content-length") &&
                                         !lowerKey.equals("transfer-encoding") &&
                                         !lowerKey.equals("connection") &&
@@ -337,8 +314,6 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
                                         response.getHeaders().put(key, values);
                                     }
                                 });
-                        
-                        // Stream response body directly
                         return response.writeWith(clientResponse.bodyToFlux(org.springframework.core.io.buffer.DataBuffer.class));
                     })
                     .onErrorResume(e -> {

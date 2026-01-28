@@ -166,42 +166,42 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
     }
 
     private Mono<Void> forwardToIdentityService(ServerWebExchange exchange, String token, String path) {
+        ServerHttpRequest request = exchange.getRequest();
         ServerHttpResponse response = exchange.getResponse();
         WebClient webClient = webClientBuilder.build();
 
         URI targetUri = URI.create(identityServiceUrl + path);
-
         log.info("Forwarding to Identity Service at {}", targetUri);
 
-        return webClient.method(exchange.getRequest().getMethod())
+        return webClient.method(request.getMethod())
                 .uri(targetUri)
                 .headers(headers -> headers.set(HttpHeaders.AUTHORIZATION, "Bearer " + token))
+                .body(request.getBody(), byte[].class)  // forward request body properly
                 .exchangeToMono(clientResponse -> {
                     response.setStatusCode(clientResponse.statusCode());
-                    response.getHeaders().addAll(clientResponse.headers().asHttpHeaders());
-                    return response.writeWith(clientResponse.bodyToFlux(byte[].class)
-                            .map(bytes -> response.bufferFactory().wrap(bytes)));
+                    clientResponse.headers().asHttpHeaders()
+                            .forEach((key, values) -> response.getHeaders().put(key, values));
+                    return response.writeWith(clientResponse.bodyToFlux(byte[].class));
                 });
     }
 
     private Mono<Void> forwardToBackend(ServerWebExchange exchange, String token, String path) {
         ServerHttpRequest request = exchange.getRequest();
         ServerHttpResponse response = exchange.getResponse();
-
         WebClient webClient = webClientBuilder.build();
 
         URI targetUri = URI.create(identityServiceUrl + path);
-
         log.info("Forwarding to backend service at {}", targetUri);
 
         return webClient.method(request.getMethod())
                 .uri(targetUri)
                 .headers(headers -> headers.set(HttpHeaders.AUTHORIZATION, "Bearer " + token))
+                .body(request.getBody(), byte[].class)  // forward request body properly
                 .exchangeToMono(clientResponse -> {
                     response.setStatusCode(clientResponse.statusCode());
-                    response.getHeaders().addAll(clientResponse.headers().asHttpHeaders());
-                    return response.writeWith(clientResponse.bodyToFlux(byte[].class)
-                            .map(bytes -> response.bufferFactory().wrap(bytes)));
+                    clientResponse.headers().asHttpHeaders()
+                            .forEach((key, values) -> response.getHeaders().put(key, values));
+                    return response.writeWith(clientResponse.bodyToFlux(byte[].class));
                 });
     }
 

@@ -150,13 +150,13 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
             boolean isAdmin = isAdminRole(roles);
             
             if (isAdmin) {
-                log.info("✅ User has admin role → routing to Identity Service");
+                log.info("✅ User has admin role → forwarding to Identity Service");
                 // Build full target URL for identity service
                 String fullTargetUrl = identityServiceUrl.endsWith("/") 
                         ? identityServiceUrl.substring(0, identityServiceUrl.length() - 1) + path
                         : identityServiceUrl + path;
-                // Route to identity service
-                return routeToTarget(exchange, token, fullTargetUrl, chain);
+                // Forward request to identity service (proxy/forward, not redirect)
+                return forwardRequest(exchange, token, fullTargetUrl);
             } else {
                 log.warn("⛔ User lacks admin role → access denied to identity API. User roles: {}", roles);
                 response.setStatusCode(HttpStatus.FORBIDDEN);
@@ -222,11 +222,11 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
                     // Forward the full requested path to the target service
                     String fullTargetUrl = targetBaseUrl + path;
                     
-                    log.info("✅ ACCESS GRANTED → role={} matchedUri={} requestedPath={} → routing to {}", 
+                    log.info("✅ ACCESS GRANTED → role={} matchedUri={} requestedPath={} → redirecting to {}", 
                             role, allowedUri, path, fullTargetUrl);
                     
-                    // Route request to target URL using gateway's routing mechanism
-                    return routeToTarget(exchange, token, fullTargetUrl, chain);
+                    // Redirect user to target URL (HTTP 302 redirect)
+                    return redirectToTarget(exchange, fullTargetUrl);
                 }
             }
             
@@ -239,10 +239,10 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
     }
 
     /**
-     * Route request to target URL using Spring Cloud Gateway's routing mechanism
-     * Modifies the exchange URI and continues the filter chain
+     * Forward request to target URL (proxy/forward - used for identity service)
+     * Uses WebClient to forward the request and return the response
      */
-    private Mono<Void> routeToTarget(ServerWebExchange exchange, String token, String fullTargetUrl, GatewayFilterChain chain) {
+    private Mono<Void> forwardRequest(ServerWebExchange exchange, String token, String fullTargetUrl) {
         ServerHttpRequest request = exchange.getRequest();
         
         // Build target URI with query parameters
@@ -251,21 +251,32 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
                 ? URI.create(fullTargetUrl + "?" + queryString)
                 : URI.create(fullTargetUrl);
         
-        log.debug("🔄 Routing request through gateway to: {}", targetUri);
+        log.debug("🔄 Forwarding request to: {}", targetUri);
         
-        // Modify the exchange to route to target URL and preserve Authorization header
-        ServerHttpRequest modifiedRequest = request.mutate()
-                .uri(targetUri)
-                .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
-                .build();
+        // Forward request using WebClient (proxy/forward, not redirect)
+        return forwardRequestWithWebClient(exchange, token, targetUri);
+    }
+    
+    /**
+     * Redirect user to target URL (HTTP 302 redirect - used for user access)
+     */
+    private Mono<Void> redirectToTarget(ServerWebExchange exchange, String fullTargetUrl) {
+        ServerHttpRequest request = exchange.getRequest();
+        ServerHttpResponse response = exchange.getResponse();
         
-        // Create modified exchange and continue filter chain - let Spring Cloud Gateway handle routing
-        ServerWebExchange modifiedExchange = exchange.mutate()
-                .request(modifiedRequest)
-                .build();
+        // Build target URI with query parameters
+        String queryString = request.getURI().getQuery();
+        URI targetUri = queryString != null && !queryString.isEmpty() 
+                ? URI.create(fullTargetUrl + "?" + queryString)
+                : URI.create(fullTargetUrl);
         
-        // Continue filter chain - Spring Cloud Gateway will route based on the modified URI
-        return chain.filter(modifiedExchange);
+        log.debug("🔄 Redirecting to: {}", targetUri);
+        
+        // Set HTTP 302 Found (redirect) status
+        response.setStatusCode(HttpStatus.FOUND);
+        response.getHeaders().setLocation(targetUri);
+        
+        return response.setComplete();
     }
     
     /**

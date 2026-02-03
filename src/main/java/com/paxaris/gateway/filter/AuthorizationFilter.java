@@ -112,7 +112,7 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
                     return response.setComplete();
                 });
     }
-
+//handle authorization
     private Mono<Void> handleAuthorization(Map<String, Object> result,
                                            ServerWebExchange exchange,
                                            String token,

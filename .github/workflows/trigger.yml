@@ -5,6 +5,7 @@ on:
     branches:
       - main
       - master
+      - Vipul/code_updations
 
 jobs:
   trigger-central-workflow:

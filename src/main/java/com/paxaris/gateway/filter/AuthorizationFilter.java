@@ -121,6 +121,7 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
         ServerHttpResponse response = exchange.getResponse();
         String path = exchange.getRequest().getURI().getPath();
 
+        // ================= Token validation =================
         if (!"VALID".equals(result.get("status"))) {
             log.warn("⛔ Token validation returned invalid status: {}", result.get("status"));
             response.setStatusCode(HttpStatus.FORBIDDEN);
@@ -132,111 +133,104 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
         String azp = result.get("azp") != null ? result.get("azp").toString() : "";
 
         @SuppressWarnings("unchecked")
-        List<String> roles = result.get("roles") != null 
+        List<String> roles = result.get("roles") != null
                 ? ((List<String>) result.get("roles"))
-                    .stream()
-                    .map(String::toLowerCase)
-                    .filter(r -> !IGNORED_ROLES.contains(r))
-                    .filter(r -> !r.startsWith("default-roles-"))
-                    .collect(Collectors.toList())
+                .stream()
+                .map(String::toLowerCase)
+                .filter(r -> !IGNORED_ROLES.contains(r))
+                .filter(r -> !r.startsWith("default-roles-"))
+                .collect(Collectors.toList())
                 : List.of();
 
         log.info("🔐 realm={} product={} roles={}", realm, product, roles);
 
-        // FOR IDENTITY API: only forward if user has admin role
+        // ================= Identity service admin access =================
         if (path.startsWith("/identity/")) {
-            log.info("⏩ Identity API → checking admin role for forwarding");
-            
-            boolean isAdmin = isAdminRole(roles);
-            
-            if (isAdmin) {
-                log.info("✅ User has admin role → forwarding to Identity Service");
-                // Build full target URL for identity service
-                String fullTargetUrl = identityServiceUrl.endsWith("/") 
+            log.info("⏩ Identity API → checking admin role");
+
+            if (isAdminRole(roles)) {
+                String fullTargetUrl = identityServiceUrl.endsWith("/")
                         ? identityServiceUrl.substring(0, identityServiceUrl.length() - 1) + path
                         : identityServiceUrl + path;
-                // Forward request to identity service (proxy/forward, not redirect)
+
                 return forwardRequest(exchange, token, fullTargetUrl);
             } else {
-                log.warn("⛔ User lacks admin role → access denied to identity API. User roles: {}", roles);
+                log.warn("⛔ Access denied to Identity API. Roles={}", roles);
                 response.setStatusCode(HttpStatus.FORBIDDEN);
                 return response.setComplete();
             }
         }
 
-        // DB-driven role based URI authorization
-        // Check each user role against database to see if requested URI is allowed
+        // ================= DB-driven role + URI + METHOD authorization =================
         for (String role : roles) {
-            List<RealmProductRoleUrl> allowedUrls = gatewayRoleService.getUrls(realm, product, role);
+
+            List<RealmProductRoleUrl> allowedUrls =
+                    gatewayRoleService.getUrls(realm, product, role);
+
             if (allowedUrls == null || allowedUrls.isEmpty()) {
-                log.debug("🔍 Role '{}' has no allowed URIs configured", role);
                 continue;
             }
 
-            log.debug("🔍 Checking role '{}' with {} allowed URI(s)", role, allowedUrls.size());
-            
-            // Check if the requested path matches any of the allowed URIs for this role
             for (RealmProductRoleUrl config : allowedUrls) {
+
                 String allowedUri = config.getUri();
                 if (allowedUri == null || allowedUri.isEmpty()) {
                     continue;
                 }
-                
-                log.debug("🔍 Comparing requested path '{}' with allowed URI '{}' for role '{}'", 
-                        path, allowedUri, role);
-                
-                // Check if requested path matches the allowed URI pattern
+
                 boolean uriMatches = false;
-                
-                // Special handling for root URI '/'
+
                 if ("/".equals(allowedUri)) {
-                    // Root URI only matches root path
                     uriMatches = "/".equals(path);
-                } else {
-                    // For other URIs, check if path starts with the allowed URI
-                    // Ensure it's a proper prefix match (not just any substring)
-                    if (path.startsWith(allowedUri)) {
-                        // Additional check: ensure it's a complete segment match
-                        // Either paths are equal, or the next character after the prefix is '/'
-                        if (path.length() == allowedUri.length() || 
+                } else if (path.startsWith(allowedUri)) {
+                    if (path.length() == allowedUri.length() ||
                             path.charAt(allowedUri.length()) == '/') {
-                            uriMatches = true;
-                        }
+                        uriMatches = true;
                     }
                 }
-                
-                if (uriMatches) {
-                    log.info("✅ URI MATCH FOUND → role='{}' allowedUri='{}' requestedPath='{}'", 
-                            role, allowedUri, path);
-                    
-                    // Build target URL: forward the full path to target service
-                    String targetBaseUrl = config.getUrl();
-                    if (targetBaseUrl == null || targetBaseUrl.isEmpty()) {
-                        log.error("❌ Target URL is null or empty for role '{}' and URI '{}'", role, allowedUri);
-                        continue;
-                    }
-                    // Remove trailing slash from targetBaseUrl if present
-                    if (targetBaseUrl.endsWith("/")) {
-                        targetBaseUrl = targetBaseUrl.substring(0, targetBaseUrl.length() - 1);
-                    }
-                    // Forward the full requested path to the target service
-                    String fullTargetUrl = targetBaseUrl + path;
-                    
-                    log.info("✅ ACCESS GRANTED → role={} matchedUri={} requestedPath={} → redirecting to {}", 
-                            role, allowedUri, path, fullTargetUrl);
-                    
-                    // Redirect user to target URL (HTTP 302 redirect)
-                    return redirectToTarget(exchange, fullTargetUrl);
+
+                if (!uriMatches) {
+                    continue;
                 }
+
+                // 🔥 HTTP METHOD CHECK (NEW)
+                HttpMethod requestMethod = exchange.getRequest().getMethod();
+                String allowedMethod = config.getHttpMethod();
+
+                boolean methodMatches =
+                        requestMethod != null &&
+                                allowedMethod != null &&
+                                requestMethod.name().equalsIgnoreCase(allowedMethod);
+
+                if (!methodMatches) {
+                    log.warn("⛔ METHOD NOT ALLOWED → role={} uri={} allowed={} requested={}",
+                            role, allowedUri, allowedMethod, requestMethod);
+                    continue;
+                }
+
+                log.info("✅ ACCESS GRANTED → role={} uri={} method={}",
+                        role, allowedUri, requestMethod);
+
+                String targetBaseUrl = config.getUrl();
+                if (targetBaseUrl == null || targetBaseUrl.isEmpty()) {
+                    log.error("❌ Target URL is null or empty for role '{}' and URI '{}'", role, allowedUri);
+                    continue;
+                }
+
+                if (targetBaseUrl.endsWith("/")) {
+                    targetBaseUrl = targetBaseUrl.substring(0, targetBaseUrl.length() - 1);
+                }
+
+                String fullTargetUrl = targetBaseUrl + path;
+                return redirectToTarget(exchange, fullTargetUrl);
             }
-            
-            log.debug("❌ Role '{}' does not have access to URI '{}'", role, path);
         }
 
-        log.warn("⛔ ACCESS DENIED → No matching role found for path: {}", path);
+        log.warn("⛔ ACCESS DENIED → No matching role/URI/method for path: {}", path);
         response.setStatusCode(HttpStatus.FORBIDDEN);
         return response.setComplete();
     }
+
 
     /**
      * Forward request to target URL (proxy/forward - used for identity service)

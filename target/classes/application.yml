@@ -1,21 +1,11 @@
 server:
   port: 8085
 
-project:
-  management:
-    base-url: ${PROJECT_MANAGEMENT_BASE_URL}
-    endpoints:
-      web:
-        exposure:
-          include: health,info
-
 spring:
   main:
     web-application-type: reactive
-
   application:
     name: api-gateway
-
   cloud:
     gateway:
       routes:
@@ -27,28 +17,27 @@ spring:
             - StripPrefix=1
 
         - id: identity_service_route
-          uri: ${IDENTITY_SERVICE_URL}               # your identity service
+          uri: ${IDENTITY_SERVICE_URL}
           predicates:
             - Path=/identity/**
           filters:
             - StripPrefix=1
 
-        # NEW: Keycloak admin route (gateway will forward admin paths to Keycloak)
         - id: keycloak_admin_route
           uri: ${KEYCLOAK_BASE_URL}
           predicates:
-            - Path=/identity/{realm}/admin/**        # see AuthorizationFilter rewrite
+            - Path=/identity/{realm}/admin/**
           filters:
             - RewritePath=/identity/(?<realm>[^/]+)/admin/(?<segment>.*), /admin/realms/${realm}/${segment}
             - PreserveHostHeader=true
 
-  security:
-    oauth2:
-      resourceserver:
-        jwt:
-          issuer-uri: ${DUMMY_ISSUER:http://placeholder}
+        - id: dynamic_project_route
+          uri: ${PROJECT_MANAGEMENT_BASE_URL}
+          predicates:
+            - Path=/**
 
 logging:
   level:
     root: INFO
-    com.example.gateway: DEBUG
+    com.paxaris.gateway: DEBUG
+    org.springframework.cloud.gateway: DEBUG

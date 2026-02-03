@@ -15,4 +15,6 @@ public class RealmProductRoleUrl {
     private String uri;
 
     private RealmProductRole role;
+
+    private String httpMethod;
 }

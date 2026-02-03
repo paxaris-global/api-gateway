@@ -75,7 +75,7 @@ public class RoleLoader implements ApplicationRunner {
             if (!success) {
                 log.info("⏳ Retrying in {} ms...", retryInterval);
                 Thread.sleep(retryInterval);
-                retryInterval += 5000;
+                retryInterval = 5000;
             }
         }
 

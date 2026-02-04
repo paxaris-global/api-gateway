@@ -161,7 +161,7 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
             }
         }
 
-        // ================= DB-driven role + URI + METHOD authorizations =================
+        // ================= DB-driven role + URI + METHOD authorizationss =================
         for (String role : roles) {
 
             List<RealmProductRoleUrl> allowedUrls =

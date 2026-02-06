@@ -161,6 +161,13 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
             }
         }
 
+        // ================= Project Service Admin Access =================
+        // Allow Admins to access Project Manager endpoints (like save-or-update)
+        if (path.startsWith("/project/") && isAdminRole(roles)) {
+            log.info("⏩ Project API → Admin access granted for path: {}", path);
+            return chain.filter(exchange);
+        }
+
         // ================= DB-driven role + URI + METHOD authorizationss =================
         for (String role : roles) {
 

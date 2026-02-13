@@ -74,11 +74,11 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
                     path.contains("/clients") ||
                     path.contains("/roles")) {
 
-                return chain.filter(exchange)
-                        .doFinally(signal -> {
+//                return chain.filter(exchange)
+//                        .doFinally(signal -> {
                             log.info("🔄 Role config changed → refreshing gateway roles");
                             roleFetchService.fetchRolesDelayed();
-                        });
+//                        });
             }
         }
 

@@ -74,11 +74,8 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
                     path.contains("/clients") ||
                     path.contains("/roles")) {
 
-//                return chain.filter(exchange)
-//                        .doFinally(signal -> {
                             log.info("🔄 Role config changed → refreshing gateway roles");
                             roleFetchService.fetchRolesDelayed();
-//                        });
             }
         }
 
@@ -156,7 +153,8 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
                         ? identityServiceUrl.substring(0, identityServiceUrl.length() - 1) + path
                         : identityServiceUrl + path;
 
-                return forwardRequest(exchange, token, fullTargetUrl);
+//                return forwardRequest(exchange, token, fullTargetUrl);
+                return chain.filter(exchange);
             } else {
                 log.warn("⛔ Access denied to Identity API. Roles={}", roles);
                 response.setStatusCode(HttpStatus.FORBIDDEN);

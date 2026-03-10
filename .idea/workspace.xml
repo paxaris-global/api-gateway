@@ -6,25 +6,8 @@
   <component name="ChangeListManager">
     <list default="true" id="11ea62a6-87f7-4f2c-8fdd-334d6d2b58ea" name="Changes" comment="first commit">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/pom.xml" beforeDir="false" afterPath="$PROJECT_DIR$/pom.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/main/java/com/paxaris/gateway/filter/AuthorizationFilter.java" beforeDir="false" afterPath="$PROJECT_DIR$/src/main/java/com/paxaris/gateway/filter/AuthorizationFilter.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/target/classes/com/paxaris/gateway/GatewayApplication.class" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/target/classes/com/paxaris/gateway/config/CorsConfig.class" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/target/classes/com/paxaris/gateway/config/DynamicGatewayConfig.class" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/target/classes/com/paxaris/gateway/config/RoleLoader.class" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/target/classes/com/paxaris/gateway/config/WebClientConfig.class" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/target/classes/com/paxaris/gateway/exception/AuthorizationException.class" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/target/classes/com/paxaris/gateway/exception/GlobalExceptionHandler.class" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/target/classes/com/paxaris/gateway/exception/RoleDataFetchException.class" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/target/classes/com/paxaris/gateway/exception/TokenValidationException.class" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/target/classes/com/paxaris/gateway/filter/AuthorizationFilter$1.class" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/target/classes/com/paxaris/gateway/filter/AuthorizationFilter.class" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/target/classes/com/paxaris/gateway/service/GatewayRedirectService.class" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/target/classes/com/paxaris/gateway/service/GatewayRoleService.class" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/target/classes/com/paxaris/gateway/service/RoleFetchService.class" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/target/classes/dto/RealmProductRole$RealmProductRoleBuilder.class" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/target/classes/dto/RealmProductRole.class" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/target/classes/dto/RealmProductRoleUrl$RealmProductRoleUrlBuilder.class" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/target/classes/dto/RealmProductRoleUrl.class" beforeDir="false" />
       <change beforePath="$PROJECT_DIR$/target/maven-status/maven-compiler-plugin/compile/default-compile/createdFiles.lst" beforeDir="false" afterPath="$PROJECT_DIR$/target/maven-status/maven-compiler-plugin/compile/default-compile/createdFiles.lst" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />

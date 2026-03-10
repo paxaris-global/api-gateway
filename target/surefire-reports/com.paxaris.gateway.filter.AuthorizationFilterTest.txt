@@ -1,0 +1,4 @@
+-------------------------------------------------------------------------------
+Test set: com.paxaris.gateway.filter.AuthorizationFilterTest
+-------------------------------------------------------------------------------
+Tests run: 3, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 4.779 s -- in com.paxaris.gateway.filter.AuthorizationFilterTest

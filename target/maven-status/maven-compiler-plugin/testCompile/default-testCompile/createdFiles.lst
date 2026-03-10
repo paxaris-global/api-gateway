@@ -1,0 +1,4 @@
+com\paxaris\gateway\GatewayApplicationTests.class
+com\paxaris\gateway\service\GatewayRoleServiceTest.class
+com\paxaris\gateway\service\GatewayRedirectServiceTest.class
+com\paxaris\gateway\filter\AuthorizationFilterTest.class

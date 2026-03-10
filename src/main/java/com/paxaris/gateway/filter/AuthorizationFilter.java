@@ -1,4 +1,4 @@
-﻿package com.paxaris.gateway.filter;
+package com.paxaris.gateway.filter;
 
 import com.paxaris.gateway.service.GatewayRoleService;
 import com.paxaris.gateway.service.RoleFetchService;

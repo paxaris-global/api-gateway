@@ -61,8 +61,9 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
         ServerHttpRequest request = exchange.getRequest();
         ServerHttpResponse response = exchange.getResponse();
         String path = request.getURI().getPath();
+        String correlationId = request.getHeaders().getFirst(CorrelationIdFilter.CORRELATION_ID_HEADER);
 
-        log.info("➡️ [GATEWAY] {} {}", request.getMethod(), path);
+        log.info("Gateway request correlationId={} method={} path={}", correlationId, request.getMethod(), path);
 
         // Auto-refresh roles cache on key changes
         if (request.getMethod() == HttpMethod.POST ||
@@ -103,7 +104,7 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
                 })
                 .flatMap(result -> handleAuthorization(result, exchange, token, chain))
                 .onErrorResume(e -> {
-                    log.error("❌ Token validation failed for path: {}", path, e);
+                    log.error("Token validation failed correlationId={} path={}", correlationId, path, e);
                     if (e.getMessage() != null && e.getMessage().contains("401")) {
                         response.setStatusCode(HttpStatus.UNAUTHORIZED);
                     } else {

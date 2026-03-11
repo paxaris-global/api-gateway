@@ -25,34 +25,46 @@ public class RoleLoader implements ApplicationRunner {
     @Value("${project.management.base-url}")
     private String projectManagerBaseUrl;
 
-    private static final int MAX_RETRIES = 12;        // total retry attempts
-    private static final long INITIAL_RETRY_MS = 5000; // 5 seconds
+    @Value("${gateway.project-roles-path:/project/roles}")
+    private String projectRolesPath;
+
+    @Value("${gateway.role-loader.max-retries:12}")
+    private int maxRetries;
+
+    @Value("${gateway.role-loader.initial-retry-ms:5000}")
+    private long initialRetryMs;
+
+    @Value("${gateway.role-loader.request-timeout-seconds:10}")
+    private long requestTimeoutSeconds;
+
+    @Value("${gateway.role-loader.default-realm:defaultRealm}")
+    private String defaultRealm;
 
     @Override
     public void run(ApplicationArguments args) throws InterruptedException {
         log.info("📥 [GATEWAY] Fetching roles from Project Manager on startup...");
 
         int attempt = 0;
-        long retryInterval = INITIAL_RETRY_MS;
+        long retryInterval = initialRetryMs;
         boolean success = false;
 
-        while (!success && attempt < MAX_RETRIES) {
+        while (!success && attempt < maxRetries) {
             attempt++;
             try {
                 List<RealmProductRole> roles = webClientBuilder.build()
                         .get()
-                        .uri(projectManagerBaseUrl  + "/project/roles")
+                    .uri(projectManagerBaseUrl  + projectRolesPath)
                         .retrieve()
                         .bodyToFlux(RealmProductRole.class)
                         .collectList()
-                        .block(Duration.ofSeconds(10));
+                        .block(Duration.ofSeconds(requestTimeoutSeconds));
 
                 if (roles == null || roles.isEmpty()) {
                     log.warn("⚠️ [GATEWAY] No roles received from Project Manager on attempt {}", attempt);
                 } else {
                     roles.forEach(role -> {
                         if (role.getRealmName() == null || role.getRealmName().isEmpty()) {
-                            role.setRealmName("defaultRealm");
+                            role.setRealmName(defaultRealm);
                         }
                         if (role.getProductName() == null) {
                             role.setProductName("");
@@ -75,12 +87,12 @@ public class RoleLoader implements ApplicationRunner {
             if (!success) {
                 log.info("⏳ Retrying in {} ms...", retryInterval);
                 Thread.sleep(retryInterval);
-                retryInterval = 5000; // increase interval by 5s for next attempt
+                retryInterval = initialRetryMs;
             }
         }
 
         if (!success) {
-            log.error("❌ [GATEWAY] Failed to fetch roles from Project Manager after {} attempts", MAX_RETRIES);
+            log.error("❌ [GATEWAY] Failed to fetch roles from Project Manager after {} attempts", maxRetries);
         }
     }
 }

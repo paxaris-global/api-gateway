@@ -2,3 +2,4 @@ D:\paxo_base_project\api-gateway\src\test\java\com\paxaris\gateway\service\Gatew
 D:\paxo_base_project\api-gateway\src\test\java\com\paxaris\gateway\GatewayApplicationTests.java
 D:\paxo_base_project\api-gateway\src\test\java\com\paxaris\gateway\filter\AuthorizationFilterTest.java
 D:\paxo_base_project\api-gateway\src\test\java\com\paxaris\gateway\service\GatewayRoleServiceTest.java
+D:\paxo_base_project\api-gateway\src\test\java\com\paxaris\gateway\filter\CorrelationIdFilterTest.java

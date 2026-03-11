@@ -27,18 +27,23 @@ public class RoleFetchService {
     @Value("${project.management.base-url}")
     private String projectManagerBaseUrl;
 
+    @Value("${gateway.project-roles-path:/project/roles}")
+    private String projectRolesPath;
+
+    @Value("${gateway.role-refresh.delay-seconds:10}")
+    private long roleRefreshDelaySeconds;
+
     /**
      * Schedules role refresh 10 seconds after signup/create event
      */
     public void fetchRolesDelayed() {
-        System.out.println(projectManagerBaseUrl);
         scheduler.schedule(() -> {
             try {
                 log.info("⏳ [ROLE-REFRESH] Fetching roles from Project Manager after delay...");
 
                 List<RealmProductRole> roles = webClientBuilder.build()
                         .get()
-                        .uri(projectManagerBaseUrl + "/project/roles")
+                    .uri(projectManagerBaseUrl + projectRolesPath)
                         .retrieve()
                         .bodyToFlux(RealmProductRole.class)
                         .collectList()
@@ -55,6 +60,6 @@ public class RoleFetchService {
                 log.error("💥 [ROLE-REFRESH] Failed to fetch roles", e);
             }
 
-        }, 10, TimeUnit.SECONDS);
+        }, roleRefreshDelaySeconds, TimeUnit.SECONDS);
     }
 }

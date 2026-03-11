@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<testsuite xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="https://maven.apache.org/surefire/maven-surefire-plugin/xsd/surefire-test-report-3.0.xsd" version="3.0" name="com.paxaris.gateway.service.GatewayRedirectServiceTest" time="0.041" tests="3" errors="0" skipped="0" failures="0">
+<testsuite xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="https://maven.apache.org/surefire/maven-surefire-plugin/xsd/surefire-test-report-3.0.xsd" version="3.0" name="com.paxaris.gateway.filter.CorrelationIdFilterTest" time="0.082" tests="2" errors="0" skipped="0" failures="0">
   <properties>
     <property name="java.specification.version" value="21"/>
     <property name="sun.cpu.isalist" value="amd64"/>
@@ -10,10 +10,8 @@
     <property name="user.variant" value=""/>
     <property name="java.vendor.url" value="https://java.oracle.com/"/>
     <property name="user.timezone" value="Asia/Calcutta"/>
-    <property name="org.jboss.logging.provider" value="slf4j"/>
     <property name="os.name" value="Windows 10"/>
     <property name="java.vm.specification.version" value="21"/>
-    <property name="APPLICATION_NAME" value="api-gateway"/>
     <property name="sun.java.launcher" value="SUN_STANDARD"/>
     <property name="user.country" value="GB"/>
     <property name="sun.boot.library.path" value="C:\Program Files\Java\jdk-21.0.5\bin"/>
@@ -32,14 +30,10 @@
     <property name="line.separator" value="&#10;"/>
     <property name="java.vm.specification.vendor" value="Oracle Corporation"/>
     <property name="java.specification.name" value="Java Platform API Specification"/>
-    <property name="FILE_LOG_CHARSET" value="UTF-8"/>
-    <property name="java.awt.headless" value="true"/>
     <property name="surefire.real.class.path" value="C:\Users\Admin\AppData\Local\Temp\surefire16486015961983005528\surefirebooter-20260311121632730_3.jar"/>
-    <property name="LOG_LEVEL_PATTERN" value="%5p [traceId=%X{traceId:-},spanId=%X{spanId:-},correlationId=%X{correlationId:-}]"/>
     <property name="user.script" value=""/>
     <property name="sun.management.compiler" value="HotSpot 64-Bit Tiered Compilers"/>
     <property name="java.runtime.version" value="21.0.5+9-LTS-239"/>
-    <property name="LOG_CORRELATION_PATTERN" value="%correlationId"/>
     <property name="user.name" value="Admin"/>
     <property name="stdout.encoding" value="Cp1252"/>
     <property name="path.separator" value=";"/>
@@ -54,9 +48,7 @@
     <property name="user.dir" value="D:\paxo_base_project\api-gateway"/>
     <property name="os.arch" value="amd64"/>
     <property name="java.vm.specification.name" value="Java Virtual Machine Specification"/>
-    <property name="PID" value="8504"/>
     <property name="sun.os.patch.level" value=""/>
-    <property name="CONSOLE_LOG_CHARSET" value="UTF-8"/>
     <property name="native.encoding" value="Cp1252"/>
     <property name="java.library.path" value="C:\Program Files\Java\jdk-21.0.5\bin;C:\Windows\Sun\Java\bin;C:\Windows\system32;C:\Windows;c:\Users\Admin\AppData\Roaming\Code\User\globalStorage\github.copilot-chat\debugCommand;c:\Users\Admin\AppData\Roaming\Code\User\globalStorage\github.copilot-chat\copilotCli;C:\Python313\Scripts\;C:\Python313\;C:\telepresence;C:\Program Files\SSHFS-Win\bin;C:\Windows\system32;C:\Windows;C:\Windows\System32\Wbem;C:\Windows\System32\WindowsPowerShell\v1.0\;C:\Windows\System32\OpenSSH\;D:\software\apache-maven-3.8.3-bin\apache-maven-3.8.3\bin;C:\Program Files\Git\cmd;C:\Program Files\Kubernetes\Minikube;C:\Program Files\MySQL\MySQL Shell 8.0\bin\;C:\Users\Admin\AppData\Local\Microsoft\WindowsApps;C:\Users\Admin\AppData\Roaming\npm;C:\minikube;C:\Program Files\Java\jdk-21.0.5\bin;C:\Program Files\Apache\maven\bin;C:\Program Files\Gradle\gradle-8.13\bin;C:\Program Files\kafka\kafka_2.13-3.9.0\bin\windows;C:\sql-basic\instantclient_23_7;C:\Program Files\MySQL\MySQL Server 8.0\bin;C:\Program Files\nodejs\;C:\ProgramData\chocolatey\bin;C:\keycloak-26.2.4\bin;C:\Program Files\MySQL\MySQL Server 9.2\bin;;C:\Program Files\Docker\Docker\resources\bin;C:\Users\Admin\AppData\Local\Microsoft\WindowsApps;C:\Users\Admin\AppData\Roaming\npm;C:\Users\Admin\AppData\Local\Python\bin;C:\Users\Admin\AppData\Local\Python\bin;;C:\Users\Admin\AppData\Local\Programs\Ollama;C:\Users\Admin\AppData\Local\Programs\Microsoft VS Code\bin;."/>
     <property name="java.vm.info" value="mixed mode, sharing"/>
@@ -65,22 +57,7 @@
     <property name="java.vm.version" value="21.0.5+9-LTS-239"/>
     <property name="sun.io.unicode.encoding" value="UnicodeLittle"/>
     <property name="java.class.version" value="65.0"/>
-    <property name="LOGGED_APPLICATION_NAME" value="[api-gateway] "/>
   </properties>
-  <testcase name="receiveTokenUrlsSkipsStorageWhenUrlsAreEmpty" classname="com.paxaris.gateway.service.GatewayRedirectServiceTest" time="0.003">
-    <system-out><![CDATA[2026-03-11T12:16:47.886+05:30  INFO [traceId=,spanId=,correlationId=] 8504 --- [api-gateway] [           main] [                                                 ] c.p.g.service.GatewayRedirectService     : 📨 [IDENTITY→GATEWAY] Receiving token + URLs from Identity Service...
-2026-03-11T12:16:47.886+05:30  WARN [traceId=,spanId=,correlationId=] 8504 --- [api-gateway] [           main] [                                                 ] c.p.g.service.GatewayRedirectService     : ⚠️ Invalid token or empty URLs from Identity Service
-]]></system-out>
-  </testcase>
-  <testcase name="redirectUserReturnsNoAccessWhenTokenIsUnknown" classname="com.paxaris.gateway.service.GatewayRedirectServiceTest" time="0.007">
-    <system-out><![CDATA[2026-03-11T12:16:47.894+05:30  WARN [traceId=,spanId=,correlationId=] 8504 --- [api-gateway] [           main] [                                                 ] c.p.g.service.GatewayRedirectService     : ⛔ No URLs found for token missing-token
-]]></system-out>
-  </testcase>
-  <testcase name="redirectUserUsesFirstAllowedUrlForKnownToken" classname="com.paxaris.gateway.service.GatewayRedirectServiceTest" time="0.007">
-    <system-out><![CDATA[2026-03-11T12:16:47.900+05:30  INFO [traceId=,spanId=,correlationId=] 8504 --- [api-gateway] [           main] [                                                 ] c.p.g.service.GatewayRedirectService     : 📨 [IDENTITY→GATEWAY] Receiving token + URLs from Identity Service...
-2026-03-11T12:16:47.900+05:30  INFO [traceId=,spanId=,correlationId=] 8504 --- [api-gateway] [           main] [                                                 ] c.p.g.service.GatewayRedirectService     : ✅ Stored access token: token-123
-2026-03-11T12:16:47.901+05:30  INFO [traceId=,spanId=,correlationId=] 8504 --- [api-gateway] [           main] [                                                 ] c.p.g.service.GatewayRedirectService     : 🌐 Associated URLs: [http://localhost:4200/dashboard, http://localhost:4200/projects]
-2026-03-11T12:16:47.901+05:30  INFO [traceId=,spanId=,correlationId=] 8504 --- [api-gateway] [           main] [                                                 ] c.p.g.service.GatewayRedirectService     : ➡️ Redirecting user to http://localhost:4200/dashboard
-]]></system-out>
-  </testcase>
+  <testcase name="shouldGenerateCorrelationIdWhenMissing" classname="com.paxaris.gateway.filter.CorrelationIdFilterTest" time="0.064"/>
+  <testcase name="shouldReuseIncomingCorrelationId" classname="com.paxaris.gateway.filter.CorrelationIdFilterTest" time="0.01"/>
 </testsuite>

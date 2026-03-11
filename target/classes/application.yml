@@ -6,6 +6,21 @@ spring:
     web-application-type: reactive
   application:
     name: api-gateway
+
+gateway:
+  project-roles-path: ${GATEWAY_PROJECT_ROLES_PATH:/project/roles}
+  cors:
+    allowed-origins: ${GATEWAY_CORS_ALLOWED_ORIGINS:http://localhost:4200}
+    allowed-methods: ${GATEWAY_CORS_ALLOWED_METHODS:GET,POST,PUT,DELETE,OPTIONS}
+    allowed-headers: ${GATEWAY_CORS_ALLOWED_HEADERS:*}
+    allow-credentials: ${GATEWAY_CORS_ALLOW_CREDENTIALS:true}
+  role-loader:
+    max-retries: ${GATEWAY_ROLE_LOADER_MAX_RETRIES:12}
+    initial-retry-ms: ${GATEWAY_ROLE_LOADER_INITIAL_RETRY_MS:5000}
+    request-timeout-seconds: ${GATEWAY_ROLE_LOADER_REQUEST_TIMEOUT_SECONDS:10}
+    default-realm: ${GATEWAY_ROLE_LOADER_DEFAULT_REALM:defaultRealm}
+  role-refresh:
+    delay-seconds: ${GATEWAY_ROLE_REFRESH_DELAY_SECONDS:10}
   cloud:
     gateway:
       routes:
@@ -36,7 +51,21 @@ spring:
           predicates:
             - Path=/**
 
+management:
+  tracing:
+    sampling:
+      probability: 1.0
+  otlp:
+    tracing:
+      endpoint: ${OTEL_EXPORTER_OTLP_ENDPOINT:http://localhost:4318/v1/traces}
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+
 logging:
+  pattern:
+    level: "%5p [traceId=%X{traceId:-},spanId=%X{spanId:-},correlationId=%X{correlationId:-}]"
   level:
     root: INFO
     com.paxaris.gateway: DEBUG

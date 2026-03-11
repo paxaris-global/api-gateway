@@ -1,5 +1,6 @@
 package com.paxaris.gateway.filter;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.paxaris.gateway.service.GatewayRoleService;
 import com.paxaris.gateway.service.RoleFetchService;
 import dto.RealmProductRoleUrl;
@@ -14,6 +15,7 @@ import org.springframework.core.io.buffer.DataBufferUtils;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.server.reactive.ServerHttpRequest;
 import org.springframework.http.server.reactive.ServerHttpResponse;
 import org.springframework.stereotype.Component;
@@ -22,6 +24,8 @@ import org.springframework.web.server.ServerWebExchange;
 import reactor.core.publisher.Mono;
 
 import java.net.URI;
+import java.time.Instant;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -38,6 +42,7 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
     private final WebClient.Builder webClientBuilder;
     private final GatewayRoleService gatewayRoleService;
     private final RoleFetchService roleFetchService;
+    private final ObjectMapper objectMapper;
 
     private static final Set<String> IGNORED_ROLES = Set.of(
             "offline_access",
@@ -72,7 +77,7 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
 
             if (path.contains("/signup") ||
                     path.contains("/users") ||
-                    path.contains("/clients") ||
+                    path.contains("/products") ||
                     path.contains("/roles")) {
 
                             log.info("🔄 Role config changed → refreshing gateway roles");
@@ -89,8 +94,7 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
         String authHeader = request.getHeaders().getFirst(HttpHeaders.AUTHORIZATION);
         if (authHeader == null || !authHeader.startsWith("Bearer ")) {
             log.warn("⛔ Missing or invalid Authorization header");
-            response.setStatusCode(HttpStatus.UNAUTHORIZED);
-            return response.setComplete();
+            return writeJsonError(exchange, HttpStatus.UNAUTHORIZED, "UNAUTHORIZED", "Missing or invalid Authorization header");
         }
         String token = authHeader.substring(7);
 
@@ -106,11 +110,10 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
                 .onErrorResume(e -> {
                     log.error("Token validation failed correlationId={} path={}", correlationId, path, e);
                     if (e.getMessage() != null && e.getMessage().contains("401")) {
-                        response.setStatusCode(HttpStatus.UNAUTHORIZED);
+                        return writeJsonError(exchange, HttpStatus.UNAUTHORIZED, "UNAUTHORIZED", "Token validation failed");
                     } else {
-                        response.setStatusCode(HttpStatus.INTERNAL_SERVER_ERROR);
+                        return writeJsonError(exchange, HttpStatus.INTERNAL_SERVER_ERROR, "INTERNAL_SERVER_ERROR", "Token validation service error");
                     }
-                    return response.setComplete();
                 });
     }
 
@@ -125,8 +128,7 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
         // ================= Token validation =================
         if (!"VALID".equals(result.get("status"))) {
             log.warn("⛔ Token validation returned invalid status: {}", result.get("status"));
-            response.setStatusCode(HttpStatus.FORBIDDEN);
-            return response.setComplete();
+            return writeJsonError(exchange, HttpStatus.FORBIDDEN, "ACCESS_DENIED", "Token is invalid or expired");
         }
 
         String realm = result.get("realm") != null ? result.get("realm").toString() : "";
@@ -146,7 +148,7 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
         log.info("🔐 realm={} product={} roles={}", realm, product, roles);
 
         // ================= Identity service admin access =================
-        if (path.startsWith("/identity/")) {
+        if (isIdentityPath(path)) {
             log.info("⏩ Identity API → checking admin role");
 
             if (isAdminRole(roles)) {
@@ -158,14 +160,13 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
                 return chain.filter(exchange);
             } else {
                 log.warn("⛔ Access denied to Identity API. Roles={}", roles);
-                response.setStatusCode(HttpStatus.FORBIDDEN);
-                return response.setComplete();
+                return writeJsonError(exchange, HttpStatus.FORBIDDEN, "ACCESS_DENIED", "Insufficient permissions for identity endpoint");
             }
         }
 
         // ================= Project Service Admin Access =================
         // Allow Admins to access Project Manager endpoints (like save-or-update)
-        if (path.startsWith("/project/") && isAdminRole(roles)) {
+        if (isProjectPath(path) && isAdminRole(roles)) {
             log.info("⏩ Project API → Admin access granted for path: {}", path);
             return chain.filter(exchange);
         }
@@ -236,8 +237,7 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
         }
 
         log.warn("⛔ ACCESS DENIED → No matching role/URI/method for path: {}", path);
-        response.setStatusCode(HttpStatus.FORBIDDEN);
-        return response.setComplete();
+        return writeJsonError(exchange, HttpStatus.FORBIDDEN, "ACCESS_DENIED", "No matching role/URI/method authorization rule found");
     }
 
 
@@ -359,19 +359,69 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
                     })
                     .onErrorResume(e -> {
                         log.error("❌ Error forwarding request to {}", targetUri, e);
-                        response.setStatusCode(HttpStatus.INTERNAL_SERVER_ERROR);
-                        return response.setComplete();
+                        return writeJsonError(response, request, HttpStatus.INTERNAL_SERVER_ERROR,
+                                "FORWARDING_ERROR", "Failed to forward request to upstream service");
                     });
         } catch (Exception e) {
             log.error("❌ Unexpected error forwarding request to {}", targetUri, e);
-            response.setStatusCode(HttpStatus.INTERNAL_SERVER_ERROR);
+            return writeJsonError(response, request, HttpStatus.INTERNAL_SERVER_ERROR,
+                    "FORWARDING_ERROR", "Unexpected gateway forwarding error");
+        }
+    }
+
+    private Mono<Void> writeJsonError(ServerWebExchange exchange,
+                                      HttpStatus status,
+                                      String code,
+                                      String message) {
+        return writeJsonError(exchange.getResponse(), exchange.getRequest(), status, code, message);
+    }
+
+    private Mono<Void> writeJsonError(ServerHttpResponse response,
+                                      ServerHttpRequest request,
+                                      HttpStatus status,
+                                      String code,
+                                      String message) {
+        if (response.isCommitted()) {
+            return Mono.empty();
+        }
+
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("timestamp", Instant.now().toString());
+        payload.put("status", status.value());
+        payload.put("error", status.getReasonPhrase());
+        payload.put("code", code);
+        payload.put("message", message);
+        payload.put("path", request.getURI().getPath());
+        payload.put("correlationId", request.getHeaders().getFirst(CorrelationIdFilter.CORRELATION_ID_HEADER));
+
+        response.setStatusCode(status);
+        response.getHeaders().setContentType(MediaType.APPLICATION_JSON);
+        try {
+            byte[] body = objectMapper.writeValueAsBytes(payload);
+            return response.writeWith(Mono.just(response.bufferFactory().wrap(body)));
+        } catch (Exception ex) {
+            log.error("Failed to serialize gateway error payload", ex);
             return response.setComplete();
         }
     }
 
+    private boolean isIdentityPath(String path) {
+        return "/identity".equals(path)
+                || "/api/v1/identity".equals(path)
+                || path.startsWith("/identity/")
+                || path.startsWith("/api/v1/identity/");
+    }
+
+    private boolean isProjectPath(String path) {
+        return "/project".equals(path)
+                || "/api/v1/project".equals(path)
+                || path.startsWith("/project/")
+                || path.startsWith("/api/v1/project/");
+    }
+
     /**
      * Check if user has admin role
-     * Admin roles include: manage-realm, manage-users, manage-clients, create-client, impersonation, or any role containing "admin"
+    * Admin roles include Keycloak admin roles (manage-realm/manage-users/manage-clients/create-client/impersonation) or any role containing "admin"
      */
     private boolean isAdminRole(List<String> roles) {
         if (roles == null || roles.isEmpty()) {

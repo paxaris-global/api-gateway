@@ -1,5 +1,6 @@
 package com.paxaris.gateway.filter;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.paxaris.gateway.service.GatewayRoleService;
 import com.paxaris.gateway.service.RoleFetchService;
 import org.junit.jupiter.api.BeforeEach;
@@ -28,8 +29,9 @@ class AuthorizationFilterTest {
         WebClient.Builder webClientBuilder = mock(WebClient.Builder.class);
         GatewayRoleService gatewayRoleService = mock(GatewayRoleService.class);
         roleFetchService = mock(RoleFetchService.class);
+        ObjectMapper objectMapper = new ObjectMapper();
 
-        authorizationFilter = new AuthorizationFilter(webClientBuilder, gatewayRoleService, roleFetchService);
+        authorizationFilter = new AuthorizationFilter(webClientBuilder, gatewayRoleService, roleFetchService, objectMapper);
     }
 
     @Test

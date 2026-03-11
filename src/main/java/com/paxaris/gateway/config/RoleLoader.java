@@ -25,19 +25,19 @@ public class RoleLoader implements ApplicationRunner {
     @Value("${project.management.base-url}")
     private String projectManagerBaseUrl;
 
-    @Value("${gateway.project-roles-path:/project/roles}")
+    @Value("${gateway.project-roles-path}")
     private String projectRolesPath;
 
-    @Value("${gateway.role-loader.max-retries:12}")
+    @Value("${gateway.role-loader.max-retries}")
     private int maxRetries;
 
-    @Value("${gateway.role-loader.initial-retry-ms:5000}")
+    @Value("${gateway.role-loader.initial-retry-ms}")
     private long initialRetryMs;
 
-    @Value("${gateway.role-loader.request-timeout-seconds:10}")
+    @Value("${gateway.role-loader.request-timeout-seconds}")
     private long requestTimeoutSeconds;
 
-    @Value("${gateway.role-loader.default-realm:defaultRealm}")
+    @Value("${gateway.role-loader.default-realm}")
     private String defaultRealm;
 
     @Override
@@ -60,7 +60,9 @@ public class RoleLoader implements ApplicationRunner {
                         .block(Duration.ofSeconds(requestTimeoutSeconds));
 
                 if (roles == null || roles.isEmpty()) {
-                    log.warn("⚠️ [GATEWAY] No roles received from Project Manager on attempt {}", attempt);
+                    gatewayRoleService.loadRoles(List.of());
+                    log.warn("⚠️ [GATEWAY] Project Manager returned no roles; starting with empty role cache");
+                    success = true;
                 } else {
                     roles.forEach(role -> {
                         if (role.getRealmName() == null || role.getRealmName().isEmpty()) {

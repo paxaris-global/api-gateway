@@ -27,10 +27,10 @@ public class RoleFetchService {
     @Value("${project.management.base-url}")
     private String projectManagerBaseUrl;
 
-    @Value("${gateway.project-roles-path:/project/roles}")
+    @Value("${gateway.project-roles-path}")
     private String projectRolesPath;
 
-    @Value("${gateway.role-refresh.delay-seconds:10}")
+    @Value("${gateway.role-refresh.delay-seconds}")
     private long roleRefreshDelaySeconds;
 
     /**

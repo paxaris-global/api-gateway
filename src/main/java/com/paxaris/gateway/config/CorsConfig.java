@@ -14,16 +14,16 @@ import java.util.List;
 @Configuration
 public class CorsConfig {
 
-    @Value("${gateway.cors.allowed-origins:http://localhost:4200}")
+    @Value("${gateway.cors.allowed-origins}")
     private String allowedOrigins;
 
-    @Value("${gateway.cors.allowed-methods:GET,POST,PUT,DELETE,OPTIONS}")
+    @Value("${gateway.cors.allowed-methods}")
     private String allowedMethods;
 
-    @Value("${gateway.cors.allowed-headers:*}")
+    @Value("${gateway.cors.allowed-headers}")
     private String allowedHeaders;
 
-    @Value("${gateway.cors.allow-credentials:true}")
+    @Value("${gateway.cors.allow-credentials}")
     private boolean allowCredentials;
 
     @Bean

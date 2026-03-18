@@ -120,7 +120,7 @@
                         <image>eclipse-temurin:21-jdk</image>
                     </from>
                     <to>
-                        <image>devopspaxarisglobalrepo/apigateway:latest</image>
+                        <image>devopspaxarisglobalrepo/apigateway:v1.1.2</image>
                         <auth>
                             <username>${env.DOCKER_USERNAME}</username>
                             <password>${env.DOCKER_PASSWORD}</password>

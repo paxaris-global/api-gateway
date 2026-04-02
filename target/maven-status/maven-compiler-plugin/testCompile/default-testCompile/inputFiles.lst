@@ -1,5 +1,5 @@
-D:\paxo_base_project\api-gateway\src\test\java\com\paxaris\gateway\service\GatewayRedirectServiceTest.java
-D:\paxo_base_project\api-gateway\src\test\java\com\paxaris\gateway\GatewayApplicationTests.java
-D:\paxo_base_project\api-gateway\src\test\java\com\paxaris\gateway\filter\AuthorizationFilterTest.java
-D:\paxo_base_project\api-gateway\src\test\java\com\paxaris\gateway\service\GatewayRoleServiceTest.java
-D:\paxo_base_project\api-gateway\src\test\java\com\paxaris\gateway\filter\CorrelationIdFilterTest.java
+/Users/m5/paxarisglobal product/api-gateway/src/test/java/com/paxaris/gateway/filter/CorrelationIdFilterTest.java
+/Users/m5/paxarisglobal product/api-gateway/src/test/java/com/paxaris/gateway/service/GatewayRedirectServiceTest.java
+/Users/m5/paxarisglobal product/api-gateway/src/test/java/com/paxaris/gateway/filter/AuthorizationFilterTest.java
+/Users/m5/paxarisglobal product/api-gateway/src/test/java/com/paxaris/gateway/service/GatewayRoleServiceTest.java
+/Users/m5/paxarisglobal product/api-gateway/src/test/java/com/paxaris/gateway/GatewayApplicationTests.java

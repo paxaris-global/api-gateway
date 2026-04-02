@@ -34,7 +34,7 @@ public class RoleFetchService {
     private long roleRefreshDelaySeconds;
 
     /**
-     * Schedules role refresh 10 seconds after signup/create event
+     * Schedules role refresh 10 seconds after signup/create events
      */
     public void fetchRolesDelayed() {
         scheduler.schedule(() -> {

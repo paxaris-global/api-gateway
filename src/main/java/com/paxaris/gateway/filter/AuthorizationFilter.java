@@ -85,9 +85,11 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
             }
         }
 
-        // Skip auth for login/signup endpoints
-        if (path.contains("/login") || path.contains("/signup")) {
-            log.debug("⏭️ Skipping auth for login/signup endpoint");
+        // Skip auth for login/signup and product app-to-app integration endpoints
+        if (path.contains("/login")
+                || path.contains("/signup")
+                || path.contains("/product-integration")) {
+            log.debug("⏭️ Skipping auth for public identity endpoint: {}", path);
             return chain.filter(exchange);
         }
 

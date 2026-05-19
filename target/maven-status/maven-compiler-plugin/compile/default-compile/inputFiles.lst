@@ -1,16 +1,16 @@
-/Users/m5/paxarisglobal product/api-gateway/src/main/java/dto/RealmProductRole.java
-/Users/m5/paxarisglobal product/api-gateway/src/main/java/com/paxaris/gateway/filter/CorrelationIdFilter.java
-/Users/m5/paxarisglobal product/api-gateway/src/main/java/com/paxaris/gateway/config/WebClientConfig.java
-/Users/m5/paxarisglobal product/api-gateway/src/main/java/com/paxaris/gateway/service/GatewayRoleService.java
-/Users/m5/paxarisglobal product/api-gateway/src/main/java/com/paxaris/gateway/service/GatewayRedirectService.java
-/Users/m5/paxarisglobal product/api-gateway/src/main/java/com/paxaris/gateway/exception/AuthorizationException.java
-/Users/m5/paxarisglobal product/api-gateway/src/main/java/com/paxaris/gateway/exception/RoleDataFetchException.java
-/Users/m5/paxarisglobal product/api-gateway/src/main/java/com/paxaris/gateway/service/RoleFetchService.java
-/Users/m5/paxarisglobal product/api-gateway/src/main/java/dto/RealmProductRoleUrl.java
-/Users/m5/paxarisglobal product/api-gateway/src/main/java/com/paxaris/gateway/exception/TokenValidationException.java
-/Users/m5/paxarisglobal product/api-gateway/src/main/java/com/paxaris/gateway/config/RoleLoader.java
-/Users/m5/paxarisglobal product/api-gateway/src/main/java/com/paxaris/gateway/GatewayApplication.java
-/Users/m5/paxarisglobal product/api-gateway/src/main/java/com/paxaris/gateway/config/DynamicGatewayConfig.java
-/Users/m5/paxarisglobal product/api-gateway/src/main/java/com/paxaris/gateway/config/CorsConfig.java
-/Users/m5/paxarisglobal product/api-gateway/src/main/java/com/paxaris/gateway/filter/AuthorizationFilter.java
-/Users/m5/paxarisglobal product/api-gateway/src/main/java/com/paxaris/gateway/exception/GlobalExceptionHandler.java
+/Users/m5/paxarisGateway/api-gateway/src/main/java/com/paxaris/gateway/config/WebClientConfig.java
+/Users/m5/paxarisGateway/api-gateway/src/main/java/com/paxaris/gateway/service/GatewayRoleService.java
+/Users/m5/paxarisGateway/api-gateway/src/main/java/com/paxaris/gateway/filter/CorrelationIdFilter.java
+/Users/m5/paxarisGateway/api-gateway/src/main/java/com/paxaris/gateway/filter/AuthorizationFilter.java
+/Users/m5/paxarisGateway/api-gateway/src/main/java/com/paxaris/gateway/exception/RoleDataFetchException.java
+/Users/m5/paxarisGateway/api-gateway/src/main/java/dto/RealmProductRoleUrl.java
+/Users/m5/paxarisGateway/api-gateway/src/main/java/com/paxaris/gateway/config/RoleLoader.java
+/Users/m5/paxarisGateway/api-gateway/src/main/java/com/paxaris/gateway/exception/TokenValidationException.java
+/Users/m5/paxarisGateway/api-gateway/src/main/java/com/paxaris/gateway/exception/AuthorizationException.java
+/Users/m5/paxarisGateway/api-gateway/src/main/java/com/paxaris/gateway/config/CorsConfig.java
+/Users/m5/paxarisGateway/api-gateway/src/main/java/com/paxaris/gateway/service/RoleFetchService.java
+/Users/m5/paxarisGateway/api-gateway/src/main/java/com/paxaris/gateway/service/GatewayRedirectService.java
+/Users/m5/paxarisGateway/api-gateway/src/main/java/dto/RealmProductRole.java
+/Users/m5/paxarisGateway/api-gateway/src/main/java/com/paxaris/gateway/exception/GlobalExceptionHandler.java
+/Users/m5/paxarisGateway/api-gateway/src/main/java/com/paxaris/gateway/GatewayApplication.java
+/Users/m5/paxarisGateway/api-gateway/src/main/java/com/paxaris/gateway/config/DynamicGatewayConfig.java

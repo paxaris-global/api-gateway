@@ -93,6 +93,12 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
             return chain.filter(exchange);
         }
 
+        // Public catalog for Paxo home page (provisioned product cards)
+        if (request.getMethod() == HttpMethod.GET && isPublicShowcasePath(path)) {
+            log.debug("⏭️ Skipping auth for public showcase list: {}", path);
+            return chain.filter(exchange);
+        }
+
         String authHeader = request.getHeaders().getFirst(HttpHeaders.AUTHORIZATION);
         if (authHeader == null || !authHeader.startsWith("Bearer ")) {
             log.warn("⛔ Missing or invalid Authorization header");
@@ -419,6 +425,13 @@ public class AuthorizationFilter implements GlobalFilter, Ordered {
                 || "/api/v1/project".equals(path)
                 || path.startsWith("/project/")
                 || path.startsWith("/api/v1/project/");
+    }
+
+    private boolean isPublicShowcasePath(String path) {
+        return path.equals("/api/v1/project/showcases")
+                || path.startsWith("/api/v1/project/showcases?")
+                || path.equals("/project/showcases")
+                || path.startsWith("/project/showcases?");
     }
 
     /**

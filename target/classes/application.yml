@@ -63,8 +63,12 @@ spring:
 gateway:
   project-roles-path: ${GATEWAY_PROJECT_ROLES_PATH:/api/v1/project/roles}
   cors:
-    allowed-origins: ${GATEWAY_CORS_ALLOWED_ORIGINS:http://localhost:4200}
-    allowed-methods: ${GATEWAY_CORS_ALLOWED_METHODS:GET,POST,PUT,DELETE,OPTIONS}
+    # When true (default), allows any origin, method, and header for every path. Set false + origins/patterns to lock down.
+    allow-all: ${GATEWAY_CORS_ALLOW_ALL:true}
+    # Used only when allow-all is false
+    allowed-origins: ${GATEWAY_CORS_ALLOWED_ORIGINS:}
+    allowed-origin-patterns: ${GATEWAY_CORS_ALLOWED_ORIGIN_PATTERNS:http://localhost:*,http://127.0.0.1:*,https://*.ngrok-free.dev}
+    allowed-methods: ${GATEWAY_CORS_ALLOWED_METHODS:GET,POST,PUT,DELETE,OPTIONS,PATCH,HEAD}
     allowed-headers: ${GATEWAY_CORS_ALLOWED_HEADERS:*}
     allow-credentials: ${GATEWAY_CORS_ALLOW_CREDENTIALS:true}
   role-loader:

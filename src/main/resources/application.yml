@@ -6,10 +6,18 @@ spring:
     web-application-type: reactive
   application:
     name: api-gateway
+  codec:
+    max-in-memory-size: 500MB
   cloud:
     gateway:
+      httpclient:
+        connect-timeout: 60000
+        response-timeout: 900s
       server:
         webflux:
+          httpclient:
+            connect-timeout: 60000
+            response-timeout: 900s
           routes:
             - id: keycloak_admin_v1_route
               uri: ${KEYCLOAK_BASE_URL}

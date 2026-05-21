@@ -48,6 +48,11 @@ spring:
               filters:
                 - StripPrefix=1
 
+            - id: project_service_route
+              uri: ${PROJECT_MANAGEMENT_BASE_URL}
+              predicates:
+                - Path=/project,/project/**
+
             - id: identity_service_route
               uri: ${IDENTITY_SERVICE_URL}
               predicates:
